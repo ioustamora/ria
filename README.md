@@ -9,13 +9,13 @@ Cross‑platform Rust desktop AI chat app (egui + ONNX Runtime) with modern anim
 - **🎨 Modern Animated UI** (egui) with focus rings, accessibility & responsive layout
 - **💬 Intelligent Chat** with contextual demo fallback (works even before model load)
 - **🧠 Model Management**: Local + remote catalog, resumable + checksum‑verifiable downloads, aux file (tokenizer) fetch, auto directory scan
-- **� Streaming Simulation**: Chunked UI updates (scaffold for real token streaming)
+- **📡 Streaming Simulation**: Chunked UI updates (scaffold for real token streaming)
 - **🧩 Tokenization**: Pluggable (custom simple tokenizer + optional HF JSON load)
 - **⚙️ Execution Providers**: CPU, CUDA, DirectML, CoreML, OpenVINO, QNN (scaffold), NNAPI (scaffold) with NPU preference flag
 - **🔍 System Detection**: CPU / GPU / NPU capability + OS info surfaced
-- **� Minimal Forward Probe**: Attempts real ONNX `input_ids`(+`attention_mask`) run; falls back to framework message if unsupported
+- **🚦 Minimal Forward Probe**: Attempts real ONNX `input_ids`(+`attention_mask`) run; falls back to framework message if unsupported
 - **📦 Resumable Downloads** with progress & optional SHA256 validation
-- **� Notification System**: Success / Error / Info / Loading with timeouts & actions
+- **🔔 Notification System**: Success / Error / Info / Loading with timeouts & actions
 - **⌨️ Keyboard Shortcuts & Focus Navigation** (Tab / Shift+Tab, Ctrl combos)
 - **🛠 Config Persistence**: JSON config, model paths, window size/position
 - **🔄 Cross-Platform**: Windows, macOS, Linux (tested primary focus: Windows)
@@ -30,6 +30,7 @@ Cross‑platform Rust desktop AI chat app (egui + ONNX Runtime) with modern anim
 ### Installation & First Run
 
 1. **Clone and run**
+
 ```powershell
 git clone <repository-url>
 cd ria
@@ -37,16 +38,19 @@ cargo run --release
 ```
 
 2. **Load or download a model**
+
    - Click **🧠 Models**
    - Remote tab: choose a model (e.g. TinyLlama / Phi / Qwen) → 📥 Download (resumable)
    - Or place an existing `*.onnx` file into the `models/` folder (auto-detected)
    - Select it under Local Models and press Load
 
 3. **Chat**
+
    - Without a model you still get intelligent demo responses
    - With a model loaded you get ONNX forward probe confirmation (full decoding upcoming)
 
-### ⚡ That's it!
+### ⚡ Quick recap
+
 No extra services required. Works offline after model download.
 
 ## 🧠 Model Management System
@@ -54,6 +58,7 @@ No extra services required. Works offline after model download.
 The app includes a comprehensive model management system with built-in popular models:
 
 ### 📁 Local Models
+
 - Shows all `.onnx` files in your `./models/` directory
 - Displays model size, type, quantization info
 - One-click selection with radio buttons
@@ -61,6 +66,7 @@ The app includes a comprehensive model management system with built-in popular m
 - Delete functionality for cleanup
 
 ### 🌐 Remote Models
+
 Pre-configured popular models ready for download. On Intel NPU systems, a curated catalog (OpenVINO / NPU‑friendly) loads automatically:
 
 | Model | Size | Type | Best For |
@@ -72,6 +78,7 @@ Pre-configured popular models ready for download. On Intel NPU systems, a curate
 You can customize the catalog at `assets/model_catalog/intel_npu_onnx.json`.
 
 ### 🔄 Automatic & Enhanced Features
+
 - Directory scan on startup / after downloads
 - Resumable HTTP range downloads (`.onnx.part` continuation)
 - Optional SHA256 verification (when catalog provides hashes)
@@ -109,9 +116,8 @@ This app is optimized to work on Windows Copilot+ PCs with Intel NPU cores via O
 
 ## 🏗️ Architecture
 
-### Core Components
 
-```
+```text
 src/
 ├── ai/                 # AI inference engine
 │   ├── inference.rs    # Main inference logic
@@ -151,14 +157,14 @@ src/
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-2. **Clone and build**
+1. **Clone and build**
 ```bash
 git clone <repository-url>
 cd ria
 cargo build
 ```
 
-3. **Run in development mode**
+1. **Run in development mode**
 ```bash
 cargo run
 ```
@@ -198,6 +204,7 @@ cargo run
 ## ✅ Current Status & Achievements
 
 ### ✨ Working Now
+
 - Cross-platform GUI (Windows primary focus currently)
 - Local & remote model system w/ resume
 - Intelligent fallback chat (demo provider)
@@ -209,6 +216,7 @@ cargo run
 - Notifications + accessibility
 
 ### 🔄 Framework Components Ready
+
 - Provider abstraction + dynamic registration
 - Streaming channel pattern (replaceable with real token decode)
 - Minimal forward pass detection logic
@@ -218,6 +226,7 @@ cargo run
 ## 🔮 Planned Improvements
 
 ### 🎯 Phase 1 (Next)
+
 - Full generative decoding (logits -> sampling)
 - True token streaming (incremental forward passes)
 - Extended tokenizer integration (BPE / SentencePiece)
@@ -225,12 +234,14 @@ cargo run
 - Better memory usage diagnostics
 
 ### 🌐 Phase 2
+
 - External API / cloud provider plugins
 - File & document tooling (RAG groundwork)
 - Plugin architecture & sandboxing
 - Rich telemetry (optional)
 
 ### 🚀 Phase 3
+
 - RAG (vector index + retrievers)
 - Multi-modal (image, audio) pipelines
 - Voice interface (STT / TTS)
@@ -240,18 +251,21 @@ cargo run
 ## 📊 System Requirements
 
 ### Minimum Requirements
+
 - **OS**: Windows 10, macOS 10.15, Ubuntu 18.04+
 - **RAM**: 4GB (8GB recommended)
 - **Storage**: 500MB free space
 - **CPU**: Any x64 or ARM64 processor
 
 ### Recommended for AI Inference
+
 - **RAM**: 16GB+ (for larger models)
 - **GPU/NPU**: NVIDIA RTX 3060+ or Intel NPU (OpenVINO) or equivalent
 - **Storage**: SSD for faster model loading
 - **CPU**: Multi-core processor (8+ cores recommended)
 
 ### NPU Support
+
 - **Windows**: ARM64 with Qualcomm NPU
 - **Intel**: Core Ultra processors with AI acceleration
 - **Apple**: M-series chips (future CoreML optimization)
@@ -260,24 +274,28 @@ cargo run
 
 ### Common Issues
 
-**Model Loading Fails**
+#### Model Loading Fails
+
 ```bash
 # Check model file exists and is valid ONNX format
 file models/your-model.onnx
 ```
 
-**CUDA Not Detected**
+#### CUDA Not Detected
+
 ```bash
 # Verify NVIDIA driver and CUDA toolkit
 nvidia-smi
 ```
 
-**High Memory Usage**
+#### High Memory Usage
+
 - Use smaller models (1B-3B parameters)
 - Enable memory optimization in settings
 - Close other applications
 
-**Slow Performance**
+#### Slow Performance
+
 - Try alternate execution provider
 - Pick smaller / more quantized model (INT8/INT4)
 - Lower animation quality (Settings)
@@ -285,10 +303,12 @@ nvidia-smi
 ### Logs and Debugging
 
 Logs are written to:
+
 - **Console**: Standard output (development)
 - **File**: Application data directory (future)
 
 Enable debug logging:
+
 ```bash
 RUST_LOG=debug cargo run
 ```
@@ -332,4 +352,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Made with ❤️ and Rust 🦀**
+Made with ❤️ and Rust 🦀
