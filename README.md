@@ -1,20 +1,24 @@
 # 🤖 RIA AI Chat
 
-A cross-platform, high-performance AI chat application built with Rust and ONNX Runtime, featuring modern UI with animations and comprehensive model management for local AI inference.
+Cross‑platform Rust desktop AI chat app (egui + ONNX Runtime) with modern animated UI, local model management, execution‑provider detection, streaming simulation, accessibility, and intelligent fallback responses when no model is loaded.
 
-> **🚀 Status**: Fully functional with model management system and intelligent chat responses!
+> **Current Status (Aug 2025)**: UI, model management (local + remote with resumable downloads), tokenizer, execution provider selection, minimal ONNX session loading + forward probe, simulated streaming, intelligent demo fallback, notifications & accessibility all working. Full generative decoding (token-by-token real model output) is scaffolded but not yet implemented.
 
 ## ✨ Key Features
 
-- **🎨 Modern Animated UI**: Built with egui framework for smooth, responsive interface
-- **⚡ High Performance**: Rust-based architecture for maximum speed and efficiency
-- **🧠 Local AI Models**: Complete ONNX model management with download/selection system
-- **🔄 Cross-Platform**: Runs on Windows, macOS, and Linux
-- **💬 Intelligent Chat**: Context-aware responses with fallback system
-- **📦 Model Management**: Local/Remote model browsing and one-click downloads
-- **⚙️ Multi-Device Support**: CPU, GPU (CUDA/DirectML/Metal), and NPU acceleration
-- **🔧 Real Model Integration**: Framework ready for production ONNX Runtime inference
-- **📊 System Detection**: Automatic compute device discovery and optimization
+- **🎨 Modern Animated UI** (egui) with focus rings, accessibility & responsive layout
+- **💬 Intelligent Chat** with contextual demo fallback (works even before model load)
+- **🧠 Model Management**: Local + remote catalog, resumable + checksum‑verifiable downloads, aux file (tokenizer) fetch, auto directory scan
+- **� Streaming Simulation**: Chunked UI updates (scaffold for real token streaming)
+- **🧩 Tokenization**: Pluggable (custom simple tokenizer + optional HF JSON load)
+- **⚙️ Execution Providers**: CPU, CUDA, DirectML, CoreML, OpenVINO, QNN (scaffold), NNAPI (scaffold) with NPU preference flag
+- **🔍 System Detection**: CPU / GPU / NPU capability + OS info surfaced
+- **� Minimal Forward Probe**: Attempts real ONNX `input_ids`(+`attention_mask`) run; falls back to framework message if unsupported
+- **📦 Resumable Downloads** with progress & optional SHA256 validation
+- **� Notification System**: Success / Error / Info / Loading with timeouts & actions
+- **⌨️ Keyboard Shortcuts & Focus Navigation** (Tab / Shift+Tab, Ctrl combos)
+- **🛠 Config Persistence**: JSON config, model paths, window size/position
+- **🔄 Cross-Platform**: Windows, macOS, Linux (tested primary focus: Windows)
 
 ## 🚀 Quick Start
 
@@ -26,21 +30,24 @@ A cross-platform, high-performance AI chat application built with Rust and ONNX 
 ### Installation & First Run
 
 1. **Clone and run**
-```bash
+```powershell
 git clone <repository-url>
-cd ria-ai-chat
+cd ria
 cargo run --release
 ```
 
-2. **Download your first model**
-   - Click **🧠 Models** in the sidebar
-   - Go to **🌐 Remote Models** tab  
-   - Click **📥 Download** on TinyLlama (great for testing)
-   - Switch to **📁 Local Models** tab
-   - Select your model and enjoy AI chat! 🎉
+2. **Load or download a model**
+   - Click **🧠 Models**
+   - Remote tab: choose a model (e.g. TinyLlama / Phi / Qwen) → 📥 Download (resumable)
+   - Or place an existing `*.onnx` file into the `models/` folder (auto-detected)
+   - Select it under Local Models and press Load
 
-### ⚡ That's it! 
-No complex setup needed - the app handles model management, device detection, and provides intelligent responses even without models loaded.
+3. **Chat**
+   - Without a model you still get intelligent demo responses
+   - With a model loaded you get ONNX forward probe confirmation (full decoding upcoming)
+
+### ⚡ That's it!
+No extra services required. Works offline after model download.
 
 ## 🧠 Model Management System
 
@@ -54,7 +61,7 @@ The app includes a comprehensive model management system with built-in popular m
 - Delete functionality for cleanup
 
 ### 🌐 Remote Models
-Pre-configured popular models ready for download. On Intel NPU systems, a curated catalog is loaded automatically:
+Pre-configured popular models ready for download. On Intel NPU systems, a curated catalog (OpenVINO / NPU‑friendly) loads automatically:
 
 | Model | Size | Type | Best For |
 |-------|------|------|----------|
@@ -64,12 +71,14 @@ Pre-configured popular models ready for download. On Intel NPU systems, a curate
 
 You can customize the catalog at `assets/model_catalog/intel_npu_onnx.json`.
 
-### 🔄 Automatic Features
-- **Auto-detection**: Scans models directory on startup
-- **Smart fallback**: Provides helpful responses without models
-- **Progress tracking**: Real-time download progress
-- **Validation**: Ensures files are valid ONNX models
-- **Context awareness**: Intelligent responses based on user input
+### 🔄 Automatic & Enhanced Features
+- Directory scan on startup / after downloads
+- Resumable HTTP range downloads (`.onnx.part` continuation)
+- Optional SHA256 verification (when catalog provides hashes)
+- Aux file (e.g., tokenizer JSON) download support
+- Demo fallback provider if no model active
+- Real-time progress + speed estimate (KB/s)
+- Basic model heuristic analysis (type, quantization)
 
 ## ⚙️ Configuration
 
@@ -145,7 +154,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 2. **Clone and build**
 ```bash
 git clone <repository-url>
-cd ria-ai-chat
+cd ria
 cargo build
 ```
 
@@ -156,31 +165,28 @@ cargo run
 
 ### Development Features
 
-- **Hot Reload**: UI updates on code changes (debug mode)
-- **Logging**: Comprehensive tracing for debugging
-- **Error Handling**: Robust error management throughout
-- **Testing**: Unit tests for core functionality
+- Logging / tracing (set `RUST_LOG=debug`)
+- Structured error handling (`anyhow`, `thiserror`)
+- Modular providers (demo + ONNX)
+- Streaming scaffold via chunked response channel
 
-### Performance Optimization
+### Performance Notes
 
-The app includes several performance optimizations:
+- Release profile: `lto`, `panic=abort`, single codegen unit
+- Inference session optimization: Graph Level3, limited intra threads
+- Async runtime (Tokio) for downloads & streaming
+- Lightweight tokenizer (fallback) keeps startup fast
 
-- **Release Profile**: Aggressive optimizations for production builds
-- **LTO**: Link-time optimization for smaller binaries
-- **Async Operations**: Non-blocking AI inference
-- **Animation Quality**: Configurable animation settings
-- **Memory Management**: Efficient resource usage
-
-## 🎨 UI Features
+## 🎨 UI & Accessibility
 
 ### Modern Design Elements
 
-- **Smooth Animations**: Fade-in effects, hover states, loading spinners
-- **Dark Theme**: Easy on the eyes with modern color scheme
-- **Responsive Layout**: Adapts to different window sizes
-- **Message Bubbles**: Chat-like interface with timestamps
-- **Status Indicators**: Real-time typing and processing indicators
-- **Progress Bars**: Visual feedback for long operations
+- Smooth animations, dark theme (light/system planned), responsive layout
+- Message bubbles with timestamps & streaming preview
+- Typing indicator via streaming buffer
+- Download progress + notifications
+- Focus manager + keyboard navigation rings
+- Accessible labels & hover hints
 
 ### Customization
 
@@ -191,45 +197,45 @@ The app includes several performance optimizations:
 
 ## ✅ Current Status & Achievements
 
-### ✨ What's Working Right Now
-- ✅ **Cross-platform GUI**: Launches on Windows/macOS/Linux
-- ✅ **Model Management**: Full local/remote model system  
-- ✅ **Intelligent Chat**: Context-aware responses with fallbacks
-- ✅ **Device Detection**: Automatic compute device discovery
-- ✅ **ONNX Integration**: Ready for real model inference
-- ✅ **Modern UI**: Animated interface with dark theme
-- ✅ **Configuration**: Persistent settings and model selection
+### ✨ Working Now
+- Cross-platform GUI (Windows primary focus currently)
+- Local & remote model system w/ resume
+- Intelligent fallback chat (demo provider)
+- Execution provider detection & preference (NPU-first option)
+- ONNX session load + minimal forward probe
+- Simulated streaming in UI
+- Tokenization (custom + optional HF JSON)
+- Config persistence & model metadata
+- Notifications + accessibility
 
 ### 🔄 Framework Components Ready
-- ✅ **Tokenization System**: Custom tokenizer for ONNX models
-- ✅ **Provider System**: CPU/GPU/NPU support architecture  
-- ✅ **Async Operations**: Non-blocking UI with tokio runtime
-- ✅ **Error Handling**: Robust error management throughout
-- ✅ **System Information**: Hardware detection and monitoring
-- ✅ **File Management**: Model storage and organization
+- Provider abstraction + dynamic registration
+- Streaming channel pattern (replaceable with real token decode)
+- Minimal forward pass detection logic
+- System info & device detection
+- File + download utilities (resume, hash verify)
 
 ## 🔮 Planned Improvements
 
-### 🎯 Phase 1: Core AI Enhancement
-- **Real ONNX Inference**: Complete ONNX Runtime integration
-- **Performance Optimization**: Memory management and speed improvements
-- **Advanced Tokenization**: Support for more model architectures
-- **Streaming Responses**: Real-time token-by-token generation
-- **Model Validation**: Enhanced compatibility checking
+### 🎯 Phase 1 (Next)
+- Full generative decoding (logits -> sampling)
+- True token streaming (incremental forward passes)
+- Extended tokenizer integration (BPE / SentencePiece)
+- Model capability introspection & validation
+- Better memory usage diagnostics
 
-### 🌐 Phase 2: System Integration
-- **Internet Access**: Web browsing and API integration capabilities
-- **File System Access**: Document processing and file management
-- **System Administration**: DevOps and system control features
-- **API Integrations**: Cloud AI services (OpenAI, Anthropic, etc.)
-- **Plugin Architecture**: Extensible provider system
+### 🌐 Phase 2
+- External API / cloud provider plugins
+- File & document tooling (RAG groundwork)
+- Plugin architecture & sandboxing
+- Rich telemetry (optional)
 
-### 🚀 Phase 3: Advanced Features
-- **RAG Support**: Document retrieval and knowledge integration
-- **Multi-Modal**: Image and document understanding
-- **Voice Interface**: Speech-to-text and text-to-speech
-- **Mobile Apps**: iOS and Android versions
-- **Cloud Sync**: Cross-device synchronization
+### 🚀 Phase 3
+- RAG (vector index + retrievers)
+- Multi-modal (image, audio) pipelines
+- Voice interface (STT / TTS)
+- Mobile ports
+- Encrypted cloud sync
 
 ## 📊 System Requirements
 
@@ -272,9 +278,9 @@ nvidia-smi
 - Close other applications
 
 **Slow Performance**
-- Try different execution providers
-- Reduce model precision (INT8/INT4)
-- Lower animation quality settings
+- Try alternate execution provider
+- Pick smaller / more quantized model (INT8/INT4)
+- Lower animation quality (Settings)
 
 ### Logs and Debugging
 
@@ -286,6 +292,20 @@ Enable debug logging:
 ```bash
 RUST_LOG=debug cargo run
 ```
+
+## ⌨️ Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+Enter | Send message |
+| Ctrl+N | New chat session |
+| Ctrl+M | Toggle Models panel |
+| Ctrl+, | Toggle Settings panel |
+| Ctrl+D | Clear input box |
+| Ctrl+H | Show keyboard help notification |
+| Ctrl+K | Clear notifications |
+| Tab / Shift+Tab | Cycle focus |
+| Esc | Close panel / clear focus |
 
 ## 🤝 Contributing
 
