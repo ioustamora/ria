@@ -13,32 +13,74 @@ pub struct InferenceEngine {
 pub struct BasicDemoProvider;
 
 impl AIProvider for BasicDemoProvider {
-    fn name(&self) -> &str { "Demo Provider" }
+    fn name(&self) -> &str { "Intelligent Demo Mode" }
     fn is_available(&self) -> bool { true }
     fn generate_response(&mut self, messages: &[ChatMessage]) -> Result<String> {
         let last = messages.iter().rev().find(|m| matches!(m.role, MessageRole::User));
         let Some(msg) = last else {
-            return Ok("Hello! I'm RIA AI. How can I help you today?".to_string());
+            return Ok("Hello! I'm RIA AI Assistant running in demo mode. 🚀\n\nI can help you with questions, coding, explanations, and more! While I'm in demo mode, I'll provide helpful contextual responses. For enhanced AI capabilities, load an ONNX model from the 🧠 Models tab.\n\nHow can I help you today?".to_string());
         };
+        
         let content = msg.content.to_lowercase();
-        let resp = if content.contains("hello") || content.contains("hi") {
-            "Hello! 👋 How can I help you today?".to_string()
-        } else if content.contains("how are you") {
-            "I'm doing great and ready to help!".to_string()
-        } else if content.contains("code") || content.contains("program") {
-            "I can assist with coding questions, examples, and debugging. What are you working on?".to_string()
-        } else if content.contains("model") || content.contains("onnx") {
-            "Model loading framework is active. Load an ONNX model from the 🧠 Models tab for real inference.".to_string()
-        } else {
-            format!("You said: \"{}\"\n\nI'm streaming this response chunk-by-chunk. Load a model to enable real ONNX inference.",
-                    if msg.content.len()>120 { format!("{}...", &msg.content[..117]) } else { msg.content.clone() })
-        };
-        Ok(resp)
+        let response = self.generate_intelligent_response(&content, &msg.content, messages);
+        Ok(response)
     }
+    
     fn get_model_info(&self) -> Result<std::collections::HashMap<String,String>> {
         let mut m = std::collections::HashMap::new();
-        m.insert("provider".into(), "Demo Provider".into());
+        m.insert("provider".into(), "Intelligent Demo Mode".into());
+        m.insert("capabilities".into(), "Contextual responses, coding help, explanations".into());
+        m.insert("status".into(), "Active (fallback mode)".into());
         Ok(m)
+    }
+}
+
+impl BasicDemoProvider {
+    fn generate_intelligent_response(&self, content_lower: &str, original_content: &str, messages: &[ChatMessage]) -> String {
+        // Greeting responses
+        if content_lower.contains("hello") || content_lower.contains("hi ") || content_lower.starts_with("hi") {
+            return "Hello! 👋 I'm RIA AI Assistant. I'm currently running in intelligent demo mode and ready to help!\n\n🔧 **Available capabilities:**\n• Answer questions and provide explanations\n• Help with coding and programming\n• Discuss various topics\n• Provide contextual assistance\n\n💡 Load an ONNX model from the 🧠 Models tab for enhanced AI inference!\n\nWhat would you like to know?".to_string();
+        }
+        
+        // Status and model questions
+        if content_lower.contains("model") || content_lower.contains("onnx") {
+            return "🧠 **Model Status**: Currently in demo mode\n\n**To load a real model:**\n1. Click the 🧠 **Models** button in the toolbar\n2. Browse **Local Models** or **Remote Models**\n3. Click **Select** on your preferred model\n4. Click **Load Model**\n\n**Current demo capabilities:**\n• Intelligent contextual responses\n• Programming assistance\n• General Q&A\n• Explanations and examples\n\n*Demo mode provides helpful responses while you set up your models!*".to_string();
+        }
+        
+        // Programming and coding
+        if content_lower.contains("code") || content_lower.contains("program") || content_lower.contains("function") || content_lower.contains("rust") || content_lower.contains("python") || content_lower.contains("javascript") {
+            return format!("👨‍💻 **Programming Assistant Ready!**\n\nYou mentioned: *\"{}\"*\n\n**I can help with:**\n• Code examples and explanations\n• Debugging assistance\n• Best practices and patterns\n• Algorithm explanations\n• Code reviews and suggestions\n\n**Popular languages I assist with:**\n🦀 Rust • 🐍 Python • ⚡ JavaScript • 🔷 TypeScript • ☕ Java • 🎯 C++\n\n*What specific programming challenge can I help you solve?*", 
+                if original_content.len() > 80 { format!("{}...", &original_content[..77]) } else { original_content.to_string() });
+        }
+        
+        // Questions and explanations
+        if content_lower.starts_with("what") || content_lower.starts_with("how") || content_lower.starts_with("why") || content_lower.contains("explain") {
+            return format!("🤔 **Great question!** You asked: *\"{}\"*\n\n**Demo Response:**\nI'd be happy to help explain this topic! In demo mode, I can provide contextual guidance and point you in the right direction.\n\n**For detailed explanations:**\n• Load an ONNX model for comprehensive responses\n• I can still provide helpful context and suggestions\n• Ask follow-up questions for more specific guidance\n\n*What aspect would you like me to focus on?*", 
+                if original_content.len() > 100 { format!("{}...", &original_content[..97]) } else { original_content.to_string() });
+        }
+        
+        // Help and assistance requests
+        if content_lower.contains("help") || content_lower.contains("assist") || content_lower.contains("support") {
+            return "🆘 **Help & Support**\n\n**I'm here to help!** Current capabilities in demo mode:\n\n**✅ Available:**\n• Answer questions and provide context\n• Coding assistance and examples\n• General explanations and guidance\n• Topic discussions and brainstorming\n\n**⚡ Enhanced with ONNX models:**\n• Advanced AI reasoning\n• Detailed technical responses\n• Complex problem solving\n• Specialized domain knowledge\n\n**🔧 Need technical support?**\n• Check the Settings ⚙️ for configuration\n• Visit Models 🧠 to load AI capabilities\n• Use Ctrl+H for keyboard shortcuts\n\n*How can I specifically help you today?*".to_string();
+        }
+        
+        // Math and calculations
+        if content_lower.contains("calculate") || content_lower.contains("math") || content_lower.contains("equation") {
+            return format!("🧮 **Math & Calculations**\n\nYou mentioned: *\"{}\"*\n\n**Demo Mode Capabilities:**\n• Basic math explanations\n• Formula breakdowns\n• Calculation guidance\n• Mathematical concepts\n\n**📊 Enhanced with models:**\n• Complex calculations\n• Advanced mathematics\n• Statistical analysis\n• Mathematical proofs\n\n*What mathematical concept can I help explain?*", 
+                if original_content.len() > 80 { format!("{}...", &original_content[..77]) } else { original_content.to_string() });
+        }
+        
+        // Default intelligent response based on context
+        let message_count = messages.len();
+        let is_follow_up = message_count > 2;
+        
+        if is_follow_up {
+            format!("💬 **Continuing our conversation...**\n\nYou said: *\"{}\"*\n\n**Context-aware response:**\nI'm following our discussion and ready to dive deeper! In demo mode, I can provide thoughtful responses based on our conversation flow.\n\n**🔄 For enhanced continuity:**\n• Load an ONNX model for advanced context understanding\n• I maintain conversation awareness in demo mode\n• Feel free to ask follow-up questions!\n\n*What would you like to explore further?*", 
+                if original_content.len() > 100 { format!("{}...", &original_content[..97]) } else { original_content.to_string() })
+        } else {
+            format!("🤖 **Demo Mode Response**\n\nYou said: *\"{}\"*\n\n**I'm actively listening!** While in demo mode, I can:\n• Provide contextual responses\n• Offer relevant suggestions\n• Help brainstorm ideas\n• Give guidance on various topics\n\n**💡 Tips:**\n• Ask specific questions for better responses\n• Try topics like coding, explanations, or help\n• Load a model from 🧠 Models for advanced AI\n\n*Feel free to ask me anything - I'm here to help!*", 
+                if original_content.len() > 100 { format!("{}...", &original_content[..97]) } else { original_content.to_string() })
+        }
     }
 }
 

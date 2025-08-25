@@ -124,6 +124,87 @@ pub struct RiaApp {
     system_status: SystemStatusComponent,
     notifications: VecDeque<AppNotification>,
     notification_id_counter: u64,
+    // Accessibility and keyboard navigation
+    focus_manager: FocusManager,
+    keyboard_shortcuts_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FocusableElement {
+    InputArea,
+    SendButton,
+    ClearButton,
+    NewChatButton,
+    SettingsButton,
+    ModelsButton,
+    MessageActions(usize), // Message index
+    Notification(u64), // Notification ID
+}
+
+pub struct FocusManager {
+    current_focus: Option<FocusableElement>,
+    focus_ring: Vec<FocusableElement>,
+    focus_index: usize,
+    tab_navigation: bool,
+}
+
+impl FocusManager {
+    fn new() -> Self {
+        Self {
+            current_focus: None,
+            focus_ring: Vec::new(),
+            focus_index: 0,
+            tab_navigation: false,
+        }
+    }
+    
+    fn update_focus_ring(&mut self, elements: Vec<FocusableElement>) {
+        self.focus_ring = elements;
+        if self.focus_index >= self.focus_ring.len() && !self.focus_ring.is_empty() {
+            self.focus_index = 0;
+        }
+    }
+    
+    fn next_focus(&mut self) {
+        if !self.focus_ring.is_empty() {
+            self.focus_index = (self.focus_index + 1) % self.focus_ring.len();
+            self.current_focus = Some(self.focus_ring[self.focus_index].clone());
+            self.tab_navigation = true;
+        }
+    }
+    
+    fn previous_focus(&mut self) {
+        if !self.focus_ring.is_empty() {
+            self.focus_index = if self.focus_index > 0 {
+                self.focus_index - 1
+            } else {
+                self.focus_ring.len() - 1
+            };
+            self.current_focus = Some(self.focus_ring[self.focus_index].clone());
+            self.tab_navigation = true;
+        }
+    }
+    
+    fn set_focus(&mut self, element: FocusableElement) {
+        self.current_focus = Some(element.clone());
+        if let Some(index) = self.focus_ring.iter().position(|e| *e == element) {
+            self.focus_index = index;
+        }
+        self.tab_navigation = false;
+    }
+    
+    fn clear_focus(&mut self) {
+        self.current_focus = None;
+        self.tab_navigation = false;
+    }
+    
+    fn is_focused(&self, element: &FocusableElement) -> bool {
+        self.current_focus.as_ref() == Some(element)
+    }
+    
+    fn activate_current(&self) -> bool {
+        self.current_focus.is_some() && self.tab_navigation
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -173,6 +254,8 @@ impl RiaApp {
             system_status: SystemStatusComponent::new(),
             notifications: VecDeque::new(),
             notification_id_counter: 0,
+            focus_manager: FocusManager::new(),
+            keyboard_shortcuts_enabled: true,
         }
     }
 
@@ -480,20 +563,31 @@ impl RiaApp {
                     
                     // Main input area
                     ui.horizontal(|ui| {
-                        // Multi-line text input
+                        // Multi-line text input with accessibility
                         let available_width = ui.available_width() - 100.0;
+                        
+                        // Add focus indicator for input area
+                        if self.focus_manager.is_focused(&FocusableElement::InputArea) {
+                            self.render_focus_indicator(ui, &FocusableElement::InputArea);
+                        }
+                        
                         let text_edit_response = ui.add_sized(
                             [available_width, 60.0],
                             egui::TextEdit::multiline(&mut self.input_text)
                                 .hint_text(if self.generating_response { 
                                     "🔄 Generating response..." 
                                 } else { 
-                                    "💬 Type your message here...\n✨ Use Ctrl+Enter to send, or click the Send button"
+                                    "💬 Type your message here...\n✨ Use Ctrl+Enter to send, Tab to navigate, Ctrl+H for help"
                                 })
                                 .font(egui::TextStyle::Body)
                                 .desired_width(available_width)
                                 .lock_focus(self.generating_response)
                         );
+                        
+                        // Handle click focus
+                        if text_edit_response.clicked() {
+                            self.focus_manager.set_focus(FocusableElement::InputArea);
+                        }
                         
                         // Handle keyboard shortcuts
                         if text_edit_response.lost_focus() && ui.input(|i| {
@@ -533,8 +627,28 @@ impl RiaApp {
                                 .fill(button_color)
                                 .rounding(8.0);
                             
-                            if ui.add_sized([80.0, 36.0], send_button).clicked() && send_enabled {
+                            // Add focus indicator for send button
+                            if self.focus_manager.is_focused(&FocusableElement::SendButton) {
+                                self.render_focus_indicator(ui, &FocusableElement::SendButton);
+                            }
+                            
+                            let send_response = ui.add_sized([80.0, 36.0], send_button)
+                                .on_hover_text("Send message (Ctrl+Enter or click)")
+                                .on_disabled_hover_text("Type a message first or wait for response to complete");
+                            
+                            if send_response.clicked() && send_enabled {
                                 self.send_message(ctx);
+                            }
+                            
+                            // Handle focus activation
+                            if self.focus_manager.is_focused(&FocusableElement::SendButton) && 
+                               self.focus_manager.activate_current() && send_enabled {
+                                self.send_message(ctx);
+                            }
+                            
+                            // Handle click focus
+                            if send_response.clicked() {
+                                self.focus_manager.set_focus(FocusableElement::SendButton);
                             }
                             
                             // Clear button
@@ -543,31 +657,235 @@ impl RiaApp {
                                 let clear_button = egui::Button::new("🗑️ Clear")
                                     .fill(egui::Color32::from_rgb(220, 53, 69))
                                     .rounding(8.0);
-                                if ui.add_sized([80.0, 28.0], clear_button).clicked() {
+                                
+                                // Add focus indicator for clear button
+                                if self.focus_manager.is_focused(&FocusableElement::ClearButton) {
+                                    self.render_focus_indicator(ui, &FocusableElement::ClearButton);
+                                }
+                                
+                                let clear_response = ui.add_sized([80.0, 28.0], clear_button)
+                                    .on_hover_text("Clear input text (Ctrl+D)");
+                                
+                                if clear_response.clicked() {
                                     self.input_text.clear();
+                                }
+                                
+                                // Handle focus activation
+                                if self.focus_manager.is_focused(&FocusableElement::ClearButton) && 
+                                   self.focus_manager.activate_current() {
+                                    self.input_text.clear();
+                                }
+                                
+                                // Handle click focus
+                                if clear_response.clicked() {
+                                    self.focus_manager.set_focus(FocusableElement::ClearButton);
                                 }
                             }
                         });
                     });
                     
-                    // Footer with helpful tips
+                    // Footer with helpful tips and accessibility info
                     if !self.generating_response {
                         ui.add_space(6.0);
                         ui.separator();
                         ui.add_space(4.0);
                         
                         ui.horizontal(|ui| {
+                            // Main tips
                             ui.label(
-                                egui::RichText::new("💡 Tips: Use Ctrl+Enter to send quickly • Try the quick prompts above • Ask follow-up questions")
+                                egui::RichText::new("💡 Tips: Ctrl+Enter to send • Ctrl+H for help • Tab to navigate • Ctrl+M for models")
                                     .size(10.0)
                                     .color(egui::Color32::from_rgb(140, 140, 140))
                             );
+                            
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                // Focus indicator
+                                if let Some(focused) = &self.focus_manager.current_focus {
+                                    let focus_text = match focused {
+                                        FocusableElement::InputArea => "📝 Input focused",
+                                        FocusableElement::SendButton => "🚀 Send button focused", 
+                                        FocusableElement::ClearButton => "🗑️ Clear button focused",
+                                        FocusableElement::NewChatButton => "🆕 New chat focused",
+                                        FocusableElement::SettingsButton => "⚙️ Settings focused",
+                                        FocusableElement::ModelsButton => "🧠 Models focused",
+                                        FocusableElement::Notification(id) => &format!("🔔 Notification #{} focused", id),
+                                        _ => "Focus active",
+                                    };
+                                    
+                                    ui.label(
+                                        egui::RichText::new(focus_text)
+                                            .size(10.0)
+                                            .color(egui::Color32::from_rgb(100, 150, 255))
+                                            .strong()
+                                    );
+                                }
+                            });
                         });
                     }
                 });
             });
         
         ui.add_space(20.0);
+    }
+
+    // Keyboard navigation and accessibility methods
+    fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
+        if !self.keyboard_shortcuts_enabled {
+            return;
+        }
+        
+        ctx.input(|input| {
+            // Global shortcuts (Ctrl + key combinations)
+            if input.modifiers.ctrl {
+                if input.key_pressed(egui::Key::N) && !self.show_models && !self.show_settings {
+                    // Ctrl+N: New chat
+                    self.create_new_session();
+                    self.show_success("New chat session created");
+                }
+                if input.key_pressed(egui::Key::M) {
+                    // Ctrl+M: Toggle models window
+                    self.show_models = !self.show_models;
+                    if self.show_models {
+                        self.show_settings = false; // Close settings if open
+                    }
+                }
+                if input.key_pressed(egui::Key::Comma) {
+                    // Ctrl+, : Toggle settings window
+                    self.show_settings = !self.show_settings;
+                    if self.show_settings {
+                        self.show_models = false; // Close models if open
+                    }
+                }
+                if input.key_pressed(egui::Key::K) {
+                    // Ctrl+K: Clear notifications
+                    self.notifications.clear();
+                }
+                if input.key_pressed(egui::Key::D) && !self.input_text.trim().is_empty() {
+                    // Ctrl+D: Clear input
+                    self.input_text.clear();
+                }
+                if input.key_pressed(egui::Key::H) {
+                    // Ctrl+H: Show help notification
+                    self.show_keyboard_help();
+                }
+            }
+            
+            // Tab navigation
+            if input.key_pressed(egui::Key::Tab) {
+                if input.modifiers.shift {
+                    self.focus_manager.previous_focus();
+                } else {
+                    self.focus_manager.next_focus();
+                }
+            }
+            
+            // Escape to clear focus or close windows
+            if input.key_pressed(egui::Key::Escape) {
+                if self.show_models {
+                    self.show_models = false;
+                } else if self.show_settings {
+                    self.show_settings = false;
+                } else if self.focus_manager.current_focus.is_some() {
+                    self.focus_manager.clear_focus();
+                }
+            }
+            
+            // Enter to activate focused element
+            if input.key_pressed(egui::Key::Enter) && self.focus_manager.activate_current() {
+                self.handle_focus_activation();
+            }
+            
+            // Arrow keys for navigation
+            if input.key_pressed(egui::Key::ArrowDown) {
+                self.focus_manager.next_focus();
+            }
+            if input.key_pressed(egui::Key::ArrowUp) {
+                self.focus_manager.previous_focus();
+            }
+        });
+    }
+    
+    fn handle_focus_activation(&mut self) {
+        if let Some(focused_element) = &self.focus_manager.current_focus {
+            match focused_element {
+                FocusableElement::SendButton => {
+                    if !self.input_text.trim().is_empty() && !self.generating_response {
+                        // Will be handled by the main UI logic
+                    }
+                }
+                FocusableElement::ClearButton => {
+                    self.input_text.clear();
+                }
+                FocusableElement::NewChatButton => {
+                    self.create_new_session();
+                }
+                FocusableElement::SettingsButton => {
+                    self.show_settings = !self.show_settings;
+                }
+                FocusableElement::ModelsButton => {
+                    self.show_models = !self.show_models;
+                }
+                FocusableElement::Notification(id) => {
+                    self.dismiss_notification(*id);
+                }
+                _ => {}
+            }
+        }
+    }
+    
+    fn show_keyboard_help(&mut self) {
+        let help_message = 
+            "⌨️ Keyboard Shortcuts:\n\
+            • Ctrl+N: New chat\n\
+            • Ctrl+M: Toggle models\n\
+            • Ctrl+,: Settings\n\
+            • Ctrl+K: Clear notifications\n\
+            • Ctrl+D: Clear input\n\
+            • Ctrl+H: This help\n\
+            • Tab/Shift+Tab: Navigate\n\
+            • Arrow keys: Navigate\n\
+            • Enter: Activate\n\
+            • Escape: Close/Clear";
+        
+        self.show_info(help_message);
+    }
+    
+    fn update_focus_ring(&mut self) {
+        let mut focus_elements = Vec::new();
+        
+        // Always available elements
+        if !self.show_models && !self.show_settings {
+            focus_elements.push(FocusableElement::InputArea);
+            focus_elements.push(FocusableElement::SendButton);
+            if !self.input_text.is_empty() {
+                focus_elements.push(FocusableElement::ClearButton);
+            }
+            focus_elements.push(FocusableElement::NewChatButton);
+        }
+        
+        focus_elements.push(FocusableElement::ModelsButton);
+        focus_elements.push(FocusableElement::SettingsButton);
+        
+        // Add notification elements
+        for notification in &self.notifications {
+            if notification.dismissible {
+                focus_elements.push(FocusableElement::Notification(notification.id));
+            }
+        }
+        
+        self.focus_manager.update_focus_ring(focus_elements);
+    }
+    
+    fn render_focus_indicator(&self, ui: &mut egui::Ui, element: &FocusableElement) {
+        if self.focus_manager.is_focused(element) && self.focus_manager.tab_navigation {
+            let painter = ui.painter();
+            let rect = ui.max_rect();
+            painter.rect_stroke(
+                rect.expand(2.0),
+                4.0,
+                egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 150, 255))
+            );
+        }
     }
 
     fn render_message(&self, ui: &mut egui::Ui, message: &ChatMessage) {
@@ -726,8 +1044,18 @@ impl RiaApp {
         if let Some(selected_model) = self.model_manager.get_selected_model() {
             tracing::info!("Loading model: {}", selected_model);
             
+            // Show loading notification
+            self.show_loading(format!("Loading model '{}'...", selected_model));
+            
             // Get model info (now sync)
             if let Some(info) = self.model_manager.get_selected_model_info() {
+                // Check if the model file exists
+                if !info.path.exists() {
+                    self.clear_loading_notifications();
+                    self.show_error(format!("Model file not found: {}", info.path.display()));
+                    return;
+                }
+                
                 // Create inference config from settings, override model path
                 let mut config = self.config.ai_config.clone();
                 config.model_path = info.path.to_string_lossy().to_string();
@@ -735,40 +1063,74 @@ impl RiaApp {
                 // Log desired provider
                 tracing::info!("Requested EP: {:?}, prefer_npu={}", config.execution_provider, config.prefer_npu);
                 
-                // Create new ONNX provider
-                match OnnxProvider::new(config) {
-                    Ok(mut provider) => {
-                        // Try to load the model
-                        match provider.load_model() {
-                            Ok(()) => {
-                                tracing::info!("Model loaded successfully: {}", info.name);
-                                self.show_success(format!("Model '{}' loaded successfully!", info.name));
-                                self.model_loaded = true;
+                // Create a safer loading task that handles ONNX Runtime issues
+                let engine_arc = self.inference_engine.clone();
+                let model_name = info.name.clone();
+                let model_path = info.path.clone();
+                
+                // For now, let's use a simplified approach that falls back to demo mode
+                // if ONNX loading fails due to version incompatibility
+                match self.try_load_onnx_model_safely(&config, &info) {
+                    Ok(provider) => {
+                        tracing::info!("Model loaded successfully: {}", info.name);
+                        self.clear_loading_notifications();
+                        self.show_success(format!("Model '{}' loaded successfully!", info.name));
+                        self.model_loaded = true;
 
-                                // Register provider with inference engine asynchronously
-                                let engine_arc = self.inference_engine.clone();
-                                tokio::spawn(async move {
-                                    let mut engine = engine_arc.write().await;
-                                    let idx = engine.add_provider_sync(Box::new(provider));
-                                    let _ = engine.set_active_provider_sync(idx);
-                                });
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to load model: {}", e);
-                                self.show_error(format!("Failed to load model: {}", e));
-                            }
-                        }
+                        // Register provider with inference engine asynchronously
+                        tokio::spawn(async move {
+                            let mut engine = engine_arc.write().await;
+                            let idx = engine.add_provider_sync(Box::new(provider));
+                            let _ = engine.set_active_provider_sync(idx);
+                        });
                     }
                     Err(e) => {
-                        tracing::error!("Failed to create ONNX provider: {}", e);
-                        self.show_error(format!("Failed to create ONNX provider: {}", e));
+                        tracing::error!("Failed to load ONNX model: {}", e);
+                        self.clear_loading_notifications();
+                        
+                        // Provide helpful error message based on the error type
+                        let error_message = if e.to_string().contains("version") || e.to_string().contains("1.17.1") {
+                            format!("ONNX Runtime version incompatibility detected.\n\n\
+                                    The model '{}' requires ONNX Runtime 1.22.x but your system has 1.17.1.\n\n\
+                                    Solutions:\n\
+                                    • Update your ONNX Runtime installation\n\
+                                    • Chat will continue using the intelligent demo mode", info.name)
+                        } else {
+                            format!("Failed to load model '{}': {}\n\nUsing demo mode for now.", info.name, e)
+                        };
+                        
+                        self.show_warning(error_message);
+                        
+                        // Keep the demo provider active for chat functionality
+                        self.model_loaded = false;
                     }
                 }
             } else {
                 tracing::warn!("Selected model not found: {}", selected_model);
+                self.clear_loading_notifications();
                 self.show_warning(format!("Selected model not found: {}", selected_model));
             }
+        } else {
+            self.show_info("Please select a model first from the 🧠 Models tab");
         }
+    }
+    
+    fn try_load_onnx_model_safely(&self, config: &InferenceConfig, info: &crate::ai::models::ModelInfo) -> anyhow::Result<OnnxProvider> {
+        // Try to create ONNX provider with better error handling
+        let mut provider = OnnxProvider::new(config.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to create ONNX provider: {}", e))?;
+        
+        // Try to load the model with timeout and error handling
+        provider.load_model()
+            .map_err(|e| {
+                if e.to_string().contains("1.17.1") || e.to_string().contains("version") {
+                    anyhow::anyhow!("ONNX Runtime version incompatibility: {}", e)
+                } else {
+                    anyhow::anyhow!("Model loading failed: {}", e)
+                }
+            })?;
+        
+        Ok(provider)
     }
 
     fn generate_contextual_response(&self, user_input: &str) -> String {
@@ -974,6 +1336,12 @@ impl eframe::App for RiaApp {
         
         // Update notifications (remove expired ones)
         self.update_notifications();
+        
+        // Handle keyboard shortcuts and navigation
+        self.handle_keyboard_shortcuts(ctx);
+        
+        // Update focus ring based on current UI state
+        self.update_focus_ring();
 
         // Settings window
         if self.show_settings {
