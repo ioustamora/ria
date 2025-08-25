@@ -140,6 +140,45 @@ pub struct RiaApp {
     show_diagnostics: bool,
 }
 
+#[derive(Debug)]
+#[allow(dead_code)]
+enum OnnxLoadProgress {
+    Phase(String),
+    AttemptEP(String),
+    LoadError { ep: String, error: String },
+    Error(String),
+    Loaded { ep: String },
+    Failed(String),
+    Cancelled,
+    AttemptResult(OnnxEpAttempt),
+}
+
+#[derive(Debug, Clone)]
+struct OnnxEpAttempt {
+    ep: String,
+    success: bool,
+    error_kind: Option<EpErrorKind>,
+    message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum EpErrorKind { VersionMismatch, SessionBuild, ProviderInit, UnsupportedModel, Io, Unknown }
+
+fn map_load_error(le: &LoadError) -> (EpErrorKind, String) {
+    use EpErrorKind as EK; use LoadError as LE;
+    match le {
+        LE::VersionIncompatibility(m) => (EK::VersionMismatch, m.clone()),
+        LE::SessionBuild(m) => (EK::SessionBuild, m.clone()),
+        LE::FileMissing(m) | LE::NotOnnxFile(m) | LE::Io(m) => (EK::Io, format!("I/O: {m}")),
+        LE::ModelUnsupported(m) => (EK::UnsupportedModel, m.clone()),
+        LE::EmptyPath => (EK::Io, "Empty model path".into()),
+        LE::Panic(m) => (EK::SessionBuild, format!("Panic: {m}")),
+        LE::ExecutionProviderRegistration(m) => (EK::SessionBuild, m.clone()),
+        LE::InferenceProbeFailed(m) => (EK::SessionBuild, m.clone()),
+        LE::Unknown(m) => (EK::Unknown, m.clone()),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum FocusableElement {
     InputArea,
@@ -909,14 +948,11 @@ impl RiaApp {
             }
         });
     }
-    
     fn handle_focus_activation(&mut self) {
         if let Some(focused_element) = &self.focus_manager.current_focus {
             match focused_element {
                 FocusableElement::SendButton => {
-                    if !self.input_text.trim().is_empty() && !self.generating_response {
-                        // Will be handled by the main UI logic
-                    }
+                    // Actual send handled elsewhere when generating_response false
                 }
                 FocusableElement::ClearButton => {
                     self.input_text.clear();
@@ -1042,7 +1078,6 @@ impl RiaApp {
         // We'll store receiver in app state (add field if needed). For minimal change, reuse existing pattern via a static once cell not added now.
         // NOTE: For full integration we'd add a field; omitted for brevity per incremental step.
         while let Ok(msg) = progress_rx.try_recv() { self.show_info(format!("AutoFix: {msg}")); }
-    }
     }
     
     fn attempt_alternative_fix(&mut self, context: &str) {
@@ -1906,46 +1941,10 @@ impl RiaApp {
             if ui.button(if self.show_diagnostics { "Hide Diagnostics" } else { "Show Diagnostics" }).clicked() { self.show_diagnostics = !self.show_diagnostics; }
         });
     }
-}
 
-#[derive(Debug)]
-#[allow(dead_code)]
-enum OnnxLoadProgress {
-    Phase(String),
-    AttemptEP(String),
-    LoadError { ep: String, error: String },
-    Error(String),
-    Loaded { ep: String },
-    Failed(String),
-    Cancelled,
-    AttemptResult(OnnxEpAttempt),
-}
+} // end impl RiaApp
 
-#[derive(Debug, Clone)]
-struct OnnxEpAttempt {
-    ep: String,
-    success: bool,
-    error_kind: Option<EpErrorKind>,
-    message: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum EpErrorKind { VersionMismatch, SessionBuild, ProviderInit, UnsupportedModel, Io, Unknown }
-
-fn map_load_error(le: &LoadError) -> (EpErrorKind, String) {
-    use EpErrorKind as EK; use LoadError as LE;
-    match le {
-        LE::VersionIncompatibility(m) => (EK::VersionMismatch, m.clone()),
-        LE::SessionBuild(m) => (EK::SessionBuild, m.clone()),
-        LE::FileMissing(m) | LE::NotOnnxFile(m) | LE::Io(m) => (EK::Io, format!("I/O: {m}")),
-        LE::ModelUnsupported(m) => (EK::UnsupportedModel, m.clone()),
-        LE::EmptyPath => (EK::Io, "Empty model path".into()),
-        LE::Panic(m) => (EK::SessionBuild, format!("Panic: {m}")),
-        LE::ExecutionProviderRegistration(m) => (EK::SessionBuild, m.clone()),
-        LE::InferenceProbeFailed(m) => (EK::SessionBuild, m.clone()),
-        LE::Unknown(m) => (EK::Unknown, m.clone()),
-    }
-}
+// Auxiliary enums and impls follow.
 
 impl eframe::App for RiaApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {

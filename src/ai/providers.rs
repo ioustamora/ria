@@ -369,6 +369,16 @@ impl OnnxProvider {
     pub fn debug_signature_input_names(&self) -> Option<Vec<String>> {
         self.model_signature.as_ref().map(|s| s.inputs.iter().map(|i| i.name.clone()).collect())
     }
+
+    // --- Test/Diagnostics Accessors ---
+    #[allow(dead_code)]
+    pub fn last_ep_error_message(&self) -> Option<&str> { self.last_ep_error.as_deref() }
+    #[allow(dead_code)]
+    pub fn last_load_error(&self) -> Option<&LoadError> { self.last_load_error.as_ref() }
+    #[allow(dead_code)]
+    pub fn is_model_loaded(&self) -> bool { self.model_loaded }
+    #[allow(dead_code)]
+    pub fn has_signature(&self) -> bool { self.model_signature.is_some() }
 }
 
 /// Model input role classification
