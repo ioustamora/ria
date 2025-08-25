@@ -1,0 +1,75 @@
+[
+  {
+    "name": "Phi-3-mini-4k-instruct (INT4 Mobile)",
+    "description": "Microsoft Phi-3 mini 4k instruct, INT4 for CPU/mobile. Compatible with OpenVINO on Intel NPU for basic chat.",
+    "url": "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi3-mini-4k-instruct-cpu-int4-rtn-block-32-acc-level-4.onnx",
+    "size_mb": 2400.0,
+    "model_type": "ChatModel",
+    "quantization": "INT4",
+    "requirements": "Intel OpenVINO Runtime; 4GB RAM"
+  },
+  {
+    "name": "Phi-4 (CPU INT4)",
+    "description": "Microsoft Phi-4 latest generation model with INT4 quantization. Optimized for CPU and NPU inference with enhanced reasoning capabilities.",
+    "url": "https://huggingface.co/microsoft/phi-4-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi-4-cpu-int4-rtn-block-32-acc-level-4.onnx",
+    "size_mb": 7500.0,
+    "model_type": "ChatModel",
+    "quantization": "INT4",
+    "requirements": "Intel OpenVINO Runtime; 8GB RAM; NPU preferred"
+  },
+  {
+    "name": "Phi-4-mini-instruct (ONNX)",
+    "description": "Compact version of Phi-4 optimized for instruction following. Excellent performance with reduced resource requirements.",
+    "url": "https://huggingface.co/microsoft/Phi-4-mini-instruct-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi-4-mini-instruct-cpu-int4-rtn-block-32-acc-level-4.onnx",
+    "size_mb": 2800.0,
+    "model_type": "ChatModel",
+    "quantization": "INT4",
+    "requirements": "Intel OpenVINO Runtime; 4GB RAM"
+  },
+  {
+    "name": "Phi-4-reasoning (ONNX)",
+    "description": "Phi-4 specialized for reasoning tasks with enhanced logical and mathematical capabilities.",
+    "url": "https://huggingface.co/microsoft/Phi-4-reasoning-onnx/resolve/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4/phi-4-reasoning-cpu-int4-rtn-block-32-acc-level-4.onnx",
+    "size_mb": 8200.0,
+    "model_type": "ChatModel",
+    "quantization": "INT4",
+    "requirements": "Intel OpenVINO Runtime; 9GB RAM; NPU recommended"
+  },
+  {
+    "name": "Qwen2.5-0.5B-Instruct (INT8)",
+    "description": "Qwen2.5 0.5B instruct ONNX export with INT8 quantization. Fast baseline for NPU with excellent Chinese and English support.",
+    "url": "https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct/resolve/main/onnx/model_int8.onnx",
+    "size_mb": 512.0,
+    "model_type": "ChatModel",
+    "quantization": "INT8",
+    "requirements": "Intel OpenVINO Runtime; 2GB RAM"
+  },
+  {
+    "name": "TinyLlama-1.1B-Chat (INT8)",
+    "description": "TinyLlama 1.1B chat ONNX INT8 export. Good functional test on Intel NPU with compact size.",
+    "url": "https://huggingface.co/onnx-community/TinyLlama-1.1B-Chat-v1.0-ONNX/resolve/main/onnx/model_int8.onnx",
+    "size_mb": 1100.0,
+    "model_type": "ChatModel",
+    "quantization": "INT8",
+    "requirements": "Intel OpenVINO Runtime; 3GB RAM"
+  },
+  {
+    "name": "Qwen2.5-0.5B-Instruct (Q4F16)",
+    "description": "Qwen2.5 0.5B with Q4F16 quantization for optimal balance of speed and quality. Excellent for resource-constrained environments.",
+    "url": "https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct/resolve/main/onnx/model_q4f16.onnx",
+    "size_mb": 483.0,
+    "model_type": "ChatModel",
+    "quantization": "Q4F16",
+    "requirements": "Intel OpenVINO Runtime; 1.5GB RAM"
+  },
+  {
+    "name": "TinyLlama-1.1B-Chat (Q4F16)",
+    "description": "TinyLlama 1.1B with Q4F16 quantization. Compact model excellent for testing and lightweight applications.",
+    "url": "https://huggingface.co/onnx-community/TinyLlama-1.1B-Chat-v1.0-ONNX/resolve/main/onnx/model_q4f16.onnx",
+    "size_mb": 714.0,
+    "model_type": "ChatModel",
+    "quantization": "Q4F16",
+    "requirements": "Intel OpenVINO Runtime; 2GB RAM"
+  }
+]
+

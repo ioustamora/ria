@@ -1,0 +1,9 @@
+# Cargo configuration for Windows runtime library compatibility
+
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    # Use dynamic runtime to match ONNX Runtime
+    "-C", "target-feature=-crt-static",
+    # Suppress specific linker warnings
+    "-C", "link-arg=/NODEFAULTLIB:LIBCMT"
+]

@@ -1,0 +1,76 @@
+[package]
+name = "ria-ai-chat"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# ONNX Runtime for AI inference with dynamic runtime
+ort = { version = "2.0.0-rc.10", features = ["load-dynamic"] }
+ndarray = "0.16"
+
+# Tokenization
+tokenizers = "0.15"
+
+# Checksums
+sha2 = "0.10"
+hex = "0.4"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client for potential API calls
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Futures utilities
+futures-util = "0.3"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# UUID generation
+uuid = { version = "1.0", features = ["v4"] }
+
+# Date and time
+chrono = { version = "0.4", features = ["serde"] }
+
+# GUI Framework - using egui for native cross-platform support
+eframe = "0.29"
+egui = "0.29"
+egui_extras = { version = "0.29", features = ["default"] }
+
+# System information
+sysinfo = "0.32"
+
+# Directory utilities
+dirs = "5.0"
+
+# CPU information for optimization
+num_cpus = "1.16"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 1
+
+# Windows-specific linker configuration to fix runtime library conflicts
+[target.'cfg(windows)'.dependencies]
+# Ensure consistent runtime library usage
+
+[features]
+# Enable OpenVINO Execution Provider wiring in ONNX Runtime session builder
+openvino_ep = []
+# Reserve for future greedy decode integration
+greedy_decode = []

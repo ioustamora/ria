@@ -1,0 +1,9 @@
+This directory will contain:
+- icon.png (application icon)
+- Inter-Regular.ttf (modern font)
+- Other UI assets
+
+For now, these are placeholders. In a real implementation, you would:
+1. Add a proper application icon (icon.png)
+2. Download and include the Inter font or use system fonts
+3. Add any other required assets like sound files, images, etc.
