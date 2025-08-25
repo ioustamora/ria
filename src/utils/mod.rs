@@ -67,11 +67,14 @@ pub fn ensure_file_extension(path: &Path, extension: &str) -> std::path::PathBuf
 }
 
 pub fn truncate_string(s: &str, max_length: usize) -> String {
-    if s.len() <= max_length {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_length.saturating_sub(3)])
+    // If max_length is very small (<=3), return original string untouched to avoid awkward outputs
+    if max_length <= 3 || s.len() <= max_length {
+        return s.to_string();
     }
+    // Reserve space for ellipsis
+    let trunc_len = max_length.saturating_sub(3);
+    let prefix = &s[..trunc_len];
+    format!("{}...", prefix)
 }
 
 #[cfg(test)]

@@ -243,10 +243,10 @@ impl InferenceEngine {
     pub fn generate_response_stream_sampled(&mut self, messages: &[ChatMessage], max_tokens: usize, delay_ms: u64) -> Result<mpsc::Receiver<String>> {
         use crate::ai::sampler::{LogitsSampler, SamplerConfig, SamplingStrategy};
         let _provider_idx = self.active_provider.ok_or_else(|| anyhow::anyhow!("No active provider set"))?;
-        let mut sampler = LogitsSampler::new(SamplerConfig { temperature: 0.8, strategy: SamplingStrategy::TopP { p: 0.95 } });
+    let mut sampler = LogitsSampler::new(SamplerConfig { temperature: 0.8, strategy: SamplingStrategy::Greedy });
         let vocab = ["the","rust","ai","model","is","ready","and","responding","to","your","message","now","!","assistant"];
         let (tx, rx) = mpsc::channel(32);
-        let base_prompt = messages.iter().filter(|m| matches!(m.role, MessageRole::User)).map(|m| &m.content).last().cloned().unwrap_or_default();
+    let _base_prompt = messages.iter().filter(|m| matches!(m.role, MessageRole::User)).map(|m| &m.content).last().cloned().unwrap_or_default();
         // Pre-generate tokens synchronously (not realistic but keeps sampler off async task)
         let mut generated_tokens: Vec<String> = Vec::new();
         let mut current = String::new();

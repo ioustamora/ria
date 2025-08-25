@@ -85,6 +85,8 @@ pub struct OnnxProvider {
     last_ep_error: Option<String>,
     last_load_error: Option<LoadError>,
     model_signature: Option<ModelSignature>,
+    last_probe_success: bool,
+    loaded_execution_provider: Option<ExecutionProvider>,
 }
 
 /// Structured classification of ONNX model loading failures.
@@ -136,6 +138,8 @@ impl OnnxProvider {
             last_ep_error: None,
             last_load_error: None,
             model_signature: None,
+            last_probe_success: false,
+            loaded_execution_provider: None,
         })
     }
 
@@ -173,7 +177,14 @@ impl OnnxProvider {
             ExecutionProvider::Cuda => eps.push(CUDAExecutionProvider::default().build().error_on_failure()),
             ExecutionProvider::DirectML => eps.push(DirectMLExecutionProvider::default().build().error_on_failure()),
             ExecutionProvider::CoreML => eps.push(CoreMLExecutionProvider::default().build().error_on_failure()),
-            ExecutionProvider::OpenVINO => eps.push(OpenVINOExecutionProvider::default().build().error_on_failure()),
+            ExecutionProvider::OpenVINO => {
+                // Allow device string override via env var if prefer_npu enabled. (Placeholder mechanism)
+                if self.config.prefer_npu && !self.config.prefer_npu_device_string.is_empty() {
+                    std::env::set_var("RIA_OPENVINO_DEVICE", &self.config.prefer_npu_device_string);
+                }
+                let ov = OpenVINOExecutionProvider::default();
+                eps.push(ov.build().error_on_failure());
+            },
             _ => {}
         }
         eps.push(CPUExecutionProvider::default().build());
@@ -199,12 +210,41 @@ impl OnnxProvider {
         self.session = Some(session);
         self.model_loaded = true;
         self.is_loaded = true;
+    self.loaded_execution_provider = Some(preferred_ep.clone());
         self.last_load_error = None; // success
 
         if let Some(sess) = self.session.as_ref() {
             tracing::info!("Model IO: inputs={}, outputs={}", sess.inputs.len(), sess.outputs.len());
             // Introspect model signature
             self.model_signature = Some(ModelSignature::from_session(sess));
+        }
+        // Optional warmup & profiling
+        if self.config.warmup_iterations > 0 || self.config.profiling {
+            let warmups = self.config.warmup_iterations.max(if self.config.profiling { 1 } else { 0 });
+            if warmups > 0 {
+                if let Some(sess) = self.session.as_mut() {
+                    let seq_len = 8usize;
+                    let ids_arr = Array2::from_elem((1, seq_len), 0i64);
+                    let mask_arr = Array2::from_elem((1, seq_len), 1i64);
+                    let ids_val = match Value::from_array(ids_arr) { Ok(v) => v, Err(_) => { /* skip warmup */ return Ok(()); } };
+                    let mask_val = match Value::from_array(mask_arr) { Ok(v) => v, Err(_) => { return Ok(()); } };
+                    let mut warmup_ok = 0u32;
+                    for _ in 0..warmups {
+                        let success = {
+                            let r = sess.run(ort::inputs![ "input_ids" => &ids_val, "attention_mask" => &mask_val ]);
+                            r.is_ok()
+                        };
+                        if !success { let _ = sess.run(ort::inputs![ "input_ids" => &ids_val ]); }
+                        warmup_ok += 1;
+                    }
+                    if self.config.profiling {
+                        let dir = std::env::temp_dir();
+                        let path = dir.join("ria_onnx_profile.txt");
+                        let _ = std::fs::write(&path, format!("provider={:?}\nwarmup_iterations={warmup_ok}\nrequested_device={}\n", preferred_ep, self.config.prefer_npu_device_string));
+                        tracing::info!("Wrote simple profiling file to {:?}", path);
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -272,6 +312,7 @@ impl OnnxProvider {
         
         // If minimal forward succeeded, return a concise success response for now
         if ran_real_forward {
+            self.last_probe_success = true;
             return Ok(format!(
                 "🎉 Real ONNX forward pass completed successfully. Processed {} tokens. Streaming/token decoding will be enabled next.",
                 input_tokens.len()
@@ -379,6 +420,10 @@ impl OnnxProvider {
     pub fn is_model_loaded(&self) -> bool { self.model_loaded }
     #[allow(dead_code)]
     pub fn has_signature(&self) -> bool { self.model_signature.is_some() }
+    #[allow(dead_code)]
+    pub fn last_probe_success(&self) -> bool { self.last_probe_success }
+    #[allow(dead_code)]
+    pub fn loaded_execution_provider(&self) -> Option<&ExecutionProvider> { self.loaded_execution_provider.as_ref() }
 }
 
 /// Model input role classification

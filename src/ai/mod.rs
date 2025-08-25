@@ -46,6 +46,15 @@ pub struct InferenceConfig {
     pub use_npu: bool,
     #[serde(default)]
     pub prefer_npu: bool,
+    /// If prefer_npu is true and OpenVINO EP is selected/forced, use this device string.
+    #[serde(default = "InferenceConfig::default_prefer_npu_device_string")]
+    pub prefer_npu_device_string: String,
+    /// Enable lightweight profiling during model load (writes simple custom profile file, not ORT native yet).
+    #[serde(default)]
+    pub profiling: bool,
+    /// Number of warmup iterations to run immediately after session creation (adaptive probe style) to stabilize performance.
+    #[serde(default)]
+    pub warmup_iterations: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -70,8 +79,15 @@ impl Default for InferenceConfig {
             use_gpu: false,
             use_npu: false,
             prefer_npu: true, // prioritize NPU-first experience on supported systems
+            prefer_npu_device_string: Self::default_prefer_npu_device_string(),
+            profiling: false,
+            warmup_iterations: 0,
         }
     }
+}
+
+impl InferenceConfig {
+    fn default_prefer_npu_device_string() -> String { "AUTO:NPU,CPU".to_string() }
 }
 
 pub trait AIProvider {

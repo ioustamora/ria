@@ -4,7 +4,9 @@ use rand::prelude::*;
 #[derive(Debug, Clone, Copy)]
 pub enum SamplingStrategy {
     Greedy,
+    #[cfg(feature = "greedy_decode")]
     TopK { k: usize },
+    #[cfg(feature = "greedy_decode")]
     TopP { p: f32 },
 }
 
@@ -15,9 +17,7 @@ pub struct SamplerConfig {
     pub strategy: SamplingStrategy,
 }
 
-impl Default for SamplerConfig {
-    fn default() -> Self { Self { temperature: 0.8, strategy: SamplingStrategy::TopP { p: 0.9 } } }
-}
+impl Default for SamplerConfig { fn default() -> Self { Self { temperature: 0.8, strategy: SamplingStrategy::Greedy } } }
 
 /// Simple sampler applying temperature + strategy to logits (placeholder implementation)
 pub struct LogitsSampler {
@@ -32,11 +32,14 @@ impl LogitsSampler {
         if logits.is_empty() { return None; }
         match self.cfg.strategy {
             SamplingStrategy::Greedy => logits.iter().enumerate().max_by(|a,b| a.1.total_cmp(b.1)).map(|(i,_)| i),
+            #[cfg(feature = "greedy_decode")]
             SamplingStrategy::TopK { k } => self.sample_top_k(logits, k.max(1)),
+            #[cfg(feature = "greedy_decode")]
             SamplingStrategy::TopP { p } => self.sample_top_p(logits, p),
         }
     }
 
+    #[cfg(feature = "greedy_decode")]
     fn sample_top_k(&mut self, logits: &[f32], k: usize) -> Option<usize> {
         let mut idx: Vec<usize> = (0..logits.len()).collect();
         idx.sort_unstable_by(|a,b| logits[*b].total_cmp(&logits[*a]));
@@ -45,6 +48,7 @@ impl LogitsSampler {
         self.weighted_choice(logits, slice)
     }
 
+    #[cfg(feature = "greedy_decode")]
     fn sample_top_p(&mut self, logits: &[f32], p: f32) -> Option<usize> {
         let mut idx: Vec<usize> = (0..logits.len()).collect();
         idx.sort_unstable_by(|a,b| logits[*b].total_cmp(&logits[*a]));
@@ -62,6 +66,7 @@ impl LogitsSampler {
         self.weighted_choice(&exp_logits, &selected)
     }
 
+    #[cfg(feature = "greedy_decode")]
     fn weighted_choice(&mut self, weights_source: &[f32], indices: &[usize]) -> Option<usize> {
         if indices.is_empty() { return None; }
         let mut cum = 0f32;

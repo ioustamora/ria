@@ -1,14 +1,13 @@
 //! Tests focused on actual inference path (run_onnx_inference)
 //! Requires RIA_TEST_ONNX_MODEL env var to point to a valid small ONNX model.
 
-use ria_ai_chat::ai::{InferenceConfig, ExecutionProvider, ChatMessage, MessageRole};
+use ria_ai_chat::ai::{InferenceConfig, ExecutionProvider, ChatMessage, MessageRole, AIProvider};
 use ria_ai_chat::ai::providers::OnnxProvider;
-
-fn test_model_path() -> Option<String> { std::env::var("RIA_TEST_ONNX_MODEL").ok() }
+mod common; use common::discover_test_model as test_model_path;
 
 #[test]
 fn onnx_forward_probe_success_or_framework_response() {
-    let Some(model_path) = test_model_path() else { eprintln!("SKIP: set RIA_TEST_ONNX_MODEL for inference tests"); return; };
+    let Some(model_path) = test_model_path() else { eprintln!("SKIP: no test model found"); return; };
     assert!(std::path::Path::new(&model_path).exists());
     let cfg = InferenceConfig { model_path: model_path.clone(), execution_provider: ExecutionProvider::Cpu, ..InferenceConfig::default() };
     let mut provider = OnnxProvider::new(cfg).unwrap();
@@ -22,7 +21,7 @@ fn onnx_forward_probe_success_or_framework_response() {
 
 #[test]
 fn onnx_multiple_sequential_calls() {
-    let Some(model_path) = test_model_path() else { eprintln!("SKIP: set RIA_TEST_ONNX_MODEL for inference tests"); return; };
+    let Some(model_path) = test_model_path() else { eprintln!("SKIP: no test model available"); return; };
     let cfg = InferenceConfig { model_path: model_path.clone(), execution_provider: ExecutionProvider::Cpu, ..InferenceConfig::default() };
     let mut provider = OnnxProvider::new(cfg).unwrap();
     provider.load_model().unwrap();

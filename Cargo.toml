@@ -82,3 +82,5 @@ opt-level = 1
 openvino_ep = []
 # Reserve for future greedy decode integration
 greedy_decode = []
+legacy_fixes = []
+demo_ui = []

@@ -138,6 +138,9 @@ pub struct RiaApp {
     onnx_progress_rx: Option<mpsc::UnboundedReceiver<OnnxLoadProgress>>,    
     onnx_attempt_log: Vec<OnnxEpAttempt>,
     show_diagnostics: bool,
+    // Channel to receive successfully loaded provider for engine hand-off
+    onnx_loaded_provider_rx: Option<mpsc::Receiver<Box<dyn AIProvider + Send + Sync>>>,
+    onnx_loaded_provider_tx: Option<mpsc::Sender<Box<dyn AIProvider + Send + Sync>>>,
 }
 
 #[derive(Debug)]
@@ -323,6 +326,8 @@ impl RiaApp {
             onnx_progress_rx: None,
             onnx_attempt_log: Vec::new(),
             show_diagnostics: false,
+            onnx_loaded_provider_rx: None,
+            onnx_loaded_provider_tx: None,
         };
 
         // Auto-load last used model if configured
@@ -1026,13 +1031,14 @@ impl RiaApp {
     self.spawn_async_onnx_fix();
     }
     
+    #[cfg(feature = "legacy_fixes")]
     fn attempt_onnx_fix_sync(&mut self) {
         // Legacy synchronous path now delegates to async; retain for compatibility triggers
         self.spawn_async_onnx_fix();
     }
 
     fn spawn_async_onnx_fix(&mut self) {
-        let notif_id = self.notification_id_counter; // capture for potential future correlation
+    let _notif_id = self.notification_id_counter; // capture for potential future correlation
         let ctx_config = self.config.auto_fix_onnx_runtime; // whether we even proceed
         if !ctx_config { return; }
         // Channel to push progress messages back to UI thread via notifications
@@ -1041,7 +1047,7 @@ impl RiaApp {
         tokio::spawn(async move {
             use std::process::Command;
             // Helper closure to run command and capture output
-            let mut run_cmd = |cmd: &str, args: &[&str]| -> Result<(bool,String), String> {
+            let run_cmd = |cmd: &str, args: &[&str]| -> Result<(bool,String), String> {
                 Command::new(cmd).args(args).output().map(|out| {
                     let success = out.status.success();
                     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -1080,6 +1086,7 @@ impl RiaApp {
         while let Ok(msg) = progress_rx.try_recv() { self.show_info(format!("AutoFix: {msg}")); }
     }
     
+    #[cfg(feature = "legacy_fixes")]
     fn attempt_alternative_fix(&mut self, context: &str) {
         tracing::info!("Attempting alternative ONNX fix, context: {}", context);
         
@@ -1109,6 +1116,7 @@ impl RiaApp {
         }
     }
     
+    #[cfg(feature = "legacy_fixes")]
     fn try_winget_fix(&mut self) {
         if cfg!(target_os = "windows") {
             self.show_loading("🪟 Trying Windows Package Manager (winget)...");
@@ -1137,6 +1145,7 @@ impl RiaApp {
         }
     }
     
+    #[cfg(feature = "legacy_fixes")]
     fn show_fallback_message(&mut self) {
         self.clear_loading_notifications();
         
@@ -1852,6 +1861,10 @@ impl RiaApp {
         let enable_fallback = self.config.enable_ep_fallback;
         let auto_fix = self.config.auto_fix_onnx_runtime;
         let ep_sequence = [ExecutionProvider::Cuda, ExecutionProvider::DirectML, ExecutionProvider::OpenVINO, ExecutionProvider::CoreML, ExecutionProvider::Cpu];
+        // Provider hand-off channel (create per load)
+        let (prov_tx, prov_rx) = mpsc::channel(1);
+        self.onnx_loaded_provider_rx = Some(prov_rx);
+        self.onnx_loaded_provider_tx = Some(prov_tx.clone());
 
     let handle = tokio::spawn(async move {
             progress_tx.send(OnnxLoadProgress::Phase("validate_path".into())).ok();
@@ -1874,7 +1887,12 @@ impl RiaApp {
                     Err(e) => { progress_tx.send(OnnxLoadProgress::AttemptResult(OnnxEpAttempt { ep: ep_label.clone(), success: false, error_kind: Some(EpErrorKind::ProviderInit), message: Some(e.to_string()) })).ok(); continue; }
                 };
                 match attempt_provider.load_model_classified() {
-                    Ok(_) => { progress_tx.send(OnnxLoadProgress::AttemptResult(OnnxEpAttempt { ep: ep_label.clone(), success: true, error_kind: None, message: None })).ok(); progress_tx.send(OnnxLoadProgress::Loaded { ep: ep_label }).ok(); return; },
+                    Ok(_) => {
+                        let _ = prov_tx.send(Box::new(attempt_provider) as Box<dyn AIProvider + Send + Sync>).await;
+                        progress_tx.send(OnnxLoadProgress::AttemptResult(OnnxEpAttempt { ep: ep_label.clone(), success: true, error_kind: None, message: None })).ok();
+                        progress_tx.send(OnnxLoadProgress::Loaded { ep: ep_label }).ok();
+                        return;
+                    },
                     Err(le) => {
                         let (kind, msg) = map_load_error(&le);
                         let msg2 = if matches!(kind, EpErrorKind::VersionMismatch) && auto_fix { format!("{msg} (auto-fix available)") } else { msg };
@@ -1903,6 +1921,7 @@ impl RiaApp {
             self.onnx_load_cancel = None;
             self.onnx_progress_rx = None;
             self.onnx_load_task = None;
+            self.onnx_loaded_provider_tx = None; // sender dropped
         }
     }
 
@@ -1953,6 +1972,28 @@ impl eframe::App for RiaApp {
         
         // Update notifications (remove expired ones)
         self.update_notifications();
+
+        // Poll async ONNX load progress & provider channel
+        self.poll_async_onnx_progress();
+        if let Some(rx) = self.onnx_loaded_provider_rx.as_mut() {
+            match rx.try_recv() {
+                Ok(provider_box) => {
+                    let mut activation_result: Result<(), String> = Ok(());
+                    if let Ok(mut engine) = self.inference_engine.try_write() {
+                        let idx = engine.add_provider_sync(provider_box);
+                        if let Err(e) = engine.set_active_provider_sync(idx) { activation_result = Err(format!("Failed to activate ONNX provider: {e}")); }
+                    } else {
+                        activation_result = Err("Inference engine write lock busy".to_string());
+                    }
+                    match activation_result {
+                        Ok(_) => self.show_success("ONNX provider activated".to_string()),
+                        Err(err_msg) => self.show_error(err_msg),
+                    }
+                },
+                Err(TryRecvError::Empty) => {},
+                Err(TryRecvError::Disconnected) => { self.onnx_loaded_provider_rx = None; },
+            }
+        }
         
         // Handle keyboard shortcuts and navigation
         self.handle_keyboard_shortcuts(ctx);
