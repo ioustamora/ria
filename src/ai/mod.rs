@@ -2,10 +2,12 @@ pub mod inference;
 pub mod providers;
 pub mod models;
 pub mod tokenizer;
+pub mod sampler;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::any::Any;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -77,4 +79,5 @@ pub trait AIProvider {
     fn is_available(&self) -> bool;
     fn generate_response(&mut self, messages: &[ChatMessage]) -> Result<String>;
     fn get_model_info(&self) -> Result<HashMap<String, String>>;
+    fn as_any(&self) -> &dyn Any;
 }

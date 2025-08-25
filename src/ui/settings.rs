@@ -108,6 +108,17 @@ pub fn render_settings(ui: &mut egui::Ui, config: &mut AppConfig, system_status:
 
     ui.add_space(20.0);
 
+    ui.heading("Automation");
+    ui.separator();
+    ui.add_space(10.0);
+    ui.checkbox(&mut config.auto_load_last_model, "Auto-load last used model on startup");
+    ui.checkbox(&mut config.auto_select_latest_model, "If none, auto-select most recent model");
+    ui.checkbox(&mut config.auto_load_new_download, "Auto-load model immediately after download");
+    ui.checkbox(&mut config.auto_fix_onnx_runtime, "Attempt ONNX Runtime auto-fix on version mismatch");
+    ui.checkbox(&mut config.enable_ep_fallback, "Enable execution provider fallback attempts");
+
+    ui.add_space(20.0);
+
     if ui.button("Save Settings").clicked() {
         if let Err(e) = config.save() {
             tracing::error!("Failed to save settings: {}", e);

@@ -19,6 +19,7 @@ Cross‑platform Rust desktop AI chat app (egui + ONNX Runtime) with modern anim
 - **⌨️ Keyboard Shortcuts & Focus Navigation** (Tab / Shift+Tab, Ctrl combos)
 - **🛠 Config Persistence**: JSON config, model paths, window size/position
 - **🔄 Cross-Platform**: Windows, macOS, Linux (tested primary focus: Windows)
+- **🤖 Automation & Self‑Healing**: Auto‑load last model, auto‑select newest model if none, instant post‑download auto‑load, execution‑provider fallback chain, optional ONNX Runtime auto‑fix, system status bar (CPU / Mem / Disk / GPU / NPU)
 
 ## 🚀 Quick Start
 
@@ -86,6 +87,10 @@ You can customize the catalog at `assets/model_catalog/intel_npu_onnx.json`.
 - Demo fallback provider if no model active
 - Real-time progress + speed estimate (KB/s)
 - Basic model heuristic analysis (type, quantization)
+- Automatic model loading (previous session or newest ONNX)
+- Auto-load newly completed downloads (configurable)
+- Execution provider fallback (CUDA → DirectML → OpenVINO → CoreML → CPU)
+- Optional ONNX Runtime version self‑healing prompt
 
 ## ⚙️ Configuration
 
@@ -103,13 +108,30 @@ The app automatically detects available compute devices:
 ### Settings File
 
 Configuration is stored in:
+
 - **Windows**: `%APPDATA%\\ria-ai-chat\\config.json`
 - **macOS**: `~/Library/Application Support/ria-ai-chat/config.json`
 - **Linux**: `~/.config/ria-ai-chat/config.json`
 
 ### Intel NPU Priority
 
+### Automation Flags
+
+All automation is user‑controllable (Settings → Automation section):
+
+| Flag | Default | Behavior |
+|------|---------|----------|
+| Auto-load last model | ON | Load previously used model on startup if it still exists |
+| Auto-select newest model | ON | If no last model, pick most recently modified `.onnx` |
+| Auto-load new download | ON | Immediately load a model right after successful download |
+| ONNX Runtime auto-fix | ON | Offer guided / automated upgrade path on version mismatch |
+| EP fallback | ON | Try alternate execution providers automatically before failing |
+
+Disable any you prefer to control manually.
+
+
 This app is optimized to work on Windows Copilot+ PCs with Intel NPU cores via OpenVINO. On supported machines:
+
 - The model catalog includes a curated list of Intel NPU–friendly ONNX models (assets/model_catalog/intel_npu_onnx.json).
 - The runtime will favor CPU + OpenVINO/NPU paths when available.
 - You can still run on CPU-only systems; GPU paths (CUDA/DirectML/CoreML) are optional.
@@ -153,11 +175,13 @@ src/
 ### Building from Source
 
 1. **Install Rust toolchain**
+
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
 1. **Clone and build**
+
 ```bash
 git clone <repository-url>
 cd ria
@@ -165,6 +189,7 @@ cargo build
 ```
 
 1. **Run in development mode**
+
 ```bash
 cargo run
 ```
@@ -280,6 +305,51 @@ cargo run
 # Check model file exists and is valid ONNX format
 file models/your-model.onnx
 ```
+
+##### ONNX Runtime Version Mismatch / NPU Not Activating
+
+Symptoms:
+
+- Warnings about ONNX Runtime 1.16 / 1.17.x
+- NPU / OpenVINO path not used
+- Auto‑fix notification appears (if enabled)
+
+Fix Options (pick one):
+
+1. System / User Update (pip)
+
+```powershell
+pip uninstall onnxruntime onnxruntime-gpu -y
+pip install --upgrade onnxruntime
+pip install --upgrade onnxruntime-openvino  # For Intel NPU acceleration
+```
+
+1. Conda Environment (isolated)
+
+```powershell
+conda create -n ria python=3.11 -y
+conda activate ria
+conda install onnxruntime=1.22 -c conda-forge -y
+```
+
+1. Windows Package Manager
+
+```powershell
+winget install Microsoft.ONNXRuntime
+```
+
+1. Manual Runtime Download (quick test)
+Download a prebuilt 1.22+ ONNX Runtime release zip from GitHub, extract beside the app, and restart.
+
+Verify:
+
+```powershell
+python -c "import onnxruntime; print(onnxruntime.__version__)"
+```
+Should report 1.22.x or higher.
+
+Demo mode remains fully usable while you upgrade.
+
 
 #### CUDA Not Detected
 

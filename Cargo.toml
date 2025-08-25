@@ -3,6 +3,10 @@ name = "ria-ai-chat"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "ria_ai_chat"
+path = "src/lib.rs"
+
 [dependencies]
 # ONNX Runtime for AI inference with dynamic runtime
 ort = { version = "2.0.0-rc.10", features = ["load-dynamic"] }

@@ -1,6 +1,7 @@
 use super::*;
 use super::tokenizer::SimpleTokenizer;
 use anyhow::{anyhow, Result};
+use std::error::Error as StdError;
 use std::collections::HashMap;
 use sysinfo::System;
 use ort::session::Session;
@@ -10,10 +11,12 @@ use ndarray::Array2;
 use ort::value::Value;
 use ort::execution_providers::{ExecutionProviderDispatch, CPUExecutionProvider, CUDAExecutionProvider, DirectMLExecutionProvider, CoreMLExecutionProvider, OpenVINOExecutionProvider};
 
+#[allow(dead_code)]
 pub struct DeviceDetector {
     system: System,
 }
 
+#[allow(dead_code)]
 impl DeviceDetector {
     pub fn new() -> Self {
         let mut system = System::new_all();
@@ -80,7 +83,47 @@ pub struct OnnxProvider {
     model_loaded: bool,
     session: Option<Session>,
     last_ep_error: Option<String>,
+    last_load_error: Option<LoadError>,
+    model_signature: Option<ModelSignature>,
 }
+
+/// Structured classification of ONNX model loading failures.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub enum LoadError {
+    EmptyPath,
+    FileMissing(String),
+    NotOnnxFile(String),
+    ExecutionProviderRegistration(String),
+    SessionBuild(String),
+    VersionIncompatibility(String),
+    Io(String),
+    ModelUnsupported(String),
+    InferenceProbeFailed(String),
+    Panic(String),
+    Unknown(String),
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use LoadError::*;
+        match self {
+            EmptyPath => write!(f, "Model path is empty"),
+            FileMissing(p) => write!(f, "Model file does not exist: {p}"),
+            NotOnnxFile(p) => write!(f, "File is not an ONNX model: {p}"),
+            ExecutionProviderRegistration(e) => write!(f, "Execution provider registration failed: {e}"),
+            SessionBuild(e) => write!(f, "Failed to build session: {e}"),
+            VersionIncompatibility(e) => write!(f, "ONNX Runtime version incompatibility: {e}"),
+            Io(e) => write!(f, "I/O error: {e}"),
+            ModelUnsupported(e) => write!(f, "Model unsupported: {e}"),
+            InferenceProbeFailed(e) => write!(f, "Inference probe failed: {e}"),
+            Panic(e) => write!(f, "Panic during load: {e}"),
+            Unknown(e) => write!(f, "Unknown load error: {e}"),
+        }
+    }
+}
+
+impl StdError for LoadError {}
 
 impl OnnxProvider {
     pub fn new(config: InferenceConfig) -> Result<Self> {
@@ -91,43 +134,40 @@ impl OnnxProvider {
             model_loaded: false,
             session: None,
             last_ep_error: None,
+            last_load_error: None,
+            model_signature: None,
         })
     }
 
-    pub fn load_model(&mut self) -> Result<()> {
+    /// New classified load path. Returns rich LoadError variants.
+    pub fn load_model_classified(&mut self) -> std::result::Result<(), LoadError> {
+        // Basic path validation
         if self.config.model_path.is_empty() {
-            return Err(anyhow!("Model path is empty"));
+            self.last_load_error = Some(LoadError::EmptyPath);
+            return Err(LoadError::EmptyPath);
         }
-
         let model_path = std::path::Path::new(&self.config.model_path);
         if !model_path.exists() {
-            return Err(anyhow!("Model file does not exist: {}", self.config.model_path));
+            let e = LoadError::FileMissing(self.config.model_path.clone());
+            self.last_load_error = Some(e.clone());
+            return Err(e);
         }
-
         if !model_path.extension().map_or(false, |ext| ext == "onnx") {
-            return Err(anyhow!("File is not an ONNX model: {}", self.config.model_path));
+            let e = LoadError::NotOnnxFile(self.config.model_path.clone());
+            self.last_load_error = Some(e.clone());
+            return Err(e);
         }
 
-        tracing::info!("Loading ONNX model: {}", self.config.model_path);
+        tracing::info!("Loading ONNX model (classified): {}", self.config.model_path);
 
-        // Detect NPU and honor preference
         let sys = SystemInfo::default();
-        if self.config.prefer_npu && sys.has_npu() {
-            tracing::info!("Preferring NPU/OpenVINO path (if available). Fallback to CPU if not supported by current runtime.");
-        } else {
-            tracing::info!("Using CPU execution by default (no NPU preference or NPU not detected).");
-        }
-
-        // Build session and set execution provider per config/preferences
-        let mut builder = Session::builder()?;
-
-        // Determine preferred EP
         let mut preferred_ep = self.config.execution_provider.clone();
         if self.config.prefer_npu && sys.has_npu() {
             preferred_ep = ExecutionProvider::OpenVINO;
         }
 
-        // Build EP dispatch list (preferred first, then CPU fallback)
+        // Build session
+        let mut builder = Session::builder().map_err(|e| self.map_session_error("Session builder init", &e))?;
         let mut eps: Vec<ExecutionProviderDispatch> = Vec::new();
         match preferred_ep {
             ExecutionProvider::Cuda => eps.push(CUDAExecutionProvider::default().build().error_on_failure()),
@@ -136,46 +176,72 @@ impl OnnxProvider {
             ExecutionProvider::OpenVINO => eps.push(OpenVINOExecutionProvider::default().build().error_on_failure()),
             _ => {}
         }
-        // Always add CPU fallback last
         eps.push(CPUExecutionProvider::default().build());
 
-        // Attempt to register EPs; if registration returns an error, capture and continue with CPU-only
         match builder.with_execution_providers(&eps) {
             Ok(b) => builder = b,
             Err(e) => {
                 tracing::warn!("EP registration failed: {}. Falling back to CPU-only.", e);
                 self.last_ep_error = Some(e.to_string());
-                builder = Session::builder()?;
-                builder = builder.with_execution_providers([CPUExecutionProvider::default().build()].as_ref())?;
+                builder = Session::builder().map_err(|e| self.map_session_error("Session builder re-init", &e))?;
+                builder = builder.with_execution_providers([CPUExecutionProvider::default().build()].as_ref())
+                    .map_err(|e| self.map_session_error("CPU EP registration", &e))?;
             }
         }
-        builder = builder.with_optimization_level(GraphOptimizationLevel::Level3)?;
-        builder = builder.with_intra_threads(num_cpus::get().min(4))?;
+        builder = builder.with_optimization_level(GraphOptimizationLevel::Level3)
+            .map_err(|e| self.map_session_error("Set optimization level", &e))?;
+        builder = builder.with_intra_threads(num_cpus::get().min(4))
+            .map_err(|e| self.map_session_error("Set intra threads", &e))?;
 
-        // Create the session
-        let session = builder
-            .commit_from_file(&self.config.model_path)
-            .map_err(|e| anyhow!("Failed to load ONNX model: {e}"))?;
+        let session = builder.commit_from_file(&self.config.model_path)
+            .map_err(|e| self.classify_error(e.to_string()))?;
 
-        // Store the session and update flags
         self.session = Some(session);
         self.model_loaded = true;
         self.is_loaded = true;
+        self.last_load_error = None; // success
 
-        // Log model IO for debugging
         if let Some(sess) = self.session.as_ref() {
             tracing::info!("Model IO: inputs={}, outputs={}", sess.inputs.len(), sess.outputs.len());
-            tracing::info!("EP preference: prefer_npu={}, requested={:?}", self.config.prefer_npu, self.config.execution_provider);
-            if let Some(err) = &self.last_ep_error { tracing::warn!("Last EP error: {}", err); }
+            // Introspect model signature
+            self.model_signature = Some(ModelSignature::from_session(sess));
         }
-
         Ok(())
     }
 
+    /// Backwards-compatible adapter returning anyhow::Result.
+    pub fn load_model(&mut self) -> Result<()> {
+        self.load_model_classified().map_err(|e| anyhow!(e.to_string()))
+    }
+
+    fn classify_error(&mut self, msg: String) -> LoadError {
+        let lowered = msg.to_lowercase();
+        let kind = if lowered.contains("1.16") || lowered.contains("1.17") || lowered.contains("version") {
+            LoadError::VersionIncompatibility(msg)
+        } else if lowered.contains("no such file") || lowered.contains("not found") {
+            LoadError::Io(msg)
+        } else if lowered.contains("unsupported") || lowered.contains("not implemented") {
+            LoadError::ModelUnsupported(msg)
+        } else if lowered.contains("panic") {
+            LoadError::Panic(msg)
+        } else {
+            LoadError::SessionBuild(msg)
+        };
+        self.last_load_error = Some(kind.clone());
+        kind
+    }
+
+    fn map_session_error(&mut self, phase: &str, err: &dyn StdError) -> LoadError {
+        let msg = format!("{phase}: {err}");
+        self.classify_error(msg)
+    }
+
+    #[allow(dead_code)]
     pub fn tokenize(&mut self, text: &str) -> Result<Vec<i64>> {
         Ok(self.tokenizer.encode(text))
     }
 
+    #[allow(dead_code)]
     pub fn detokenize(&self, tokens: &[i64]) -> Result<String> {
         Ok(self.tokenizer.decode(tokens))
     }
@@ -198,14 +264,9 @@ impl OnnxProvider {
         // Try a minimal real forward pass if a session is present
         let mut ran_real_forward = false;
         if self.session.is_some() {
-            match self.try_minimal_forward(&input_tokens) {
-                Ok(()) => {
-                    ran_real_forward = true;
-                    tracing::info!("🎉 Minimal real ONNX forward pass succeeded");
-                }
-                Err(e) => {
-                    tracing::warn!("⚠️ Minimal forward pass failed: {}. Using framework response.", e);
-                }
+            match self.adaptive_probe(&input_tokens) {
+                Ok(()) => { ran_real_forward = true; tracing::info!("🎉 Adaptive ONNX forward probe succeeded"); },
+                Err(e) => { tracing::warn!("⚠️ Adaptive probe failed: {e}. Using framework response."); }
             }
         }
         
@@ -263,6 +324,7 @@ impl OnnxProvider {
     }
 
     /// Unload the current ONNX session and free resources
+    #[allow(dead_code)]
     pub fn unload(&mut self) {
         self.session = None;
         self.model_loaded = false;
@@ -272,39 +334,67 @@ impl OnnxProvider {
 }
 
 impl OnnxProvider {
-    /// Attempt a minimal forward pass with common input signatures.
-    fn try_minimal_forward(&mut self, input_tokens: &[i64]) -> Result<()> {
-        let session_mut = self
-            .session
-            .as_mut()
-            .ok_or_else(|| anyhow!("ONNX session not initialized"))?;
-
+    /// Adaptive forward probe using introspected model signature.
+    fn adaptive_probe(&mut self, input_tokens: &[i64]) -> Result<()> {
+        let session = self.session.as_mut().ok_or_else(|| anyhow!("ONNX session not initialized"))?;
+        let sig = self.model_signature.clone().unwrap_or_else(|| ModelSignature::from_session(session));
         let seq_len = input_tokens.len().min(512);
-        let ids = Array2::from_shape_vec((1, seq_len), input_tokens.iter().take(seq_len).cloned().collect())
-            .map_err(|e| anyhow!("Failed to shape input_ids: {}", e))?;
-        let mask = Array2::from_elem((1, seq_len), 1i64);
+        let ids_arr = Array2::from_shape_vec((1, seq_len), input_tokens.iter().take(seq_len).cloned().collect())
+            .map_err(|e| anyhow!("Failed to shape ids: {e}"))?;
+        let mask_arr = Array2::from_elem((1, seq_len), 1i64);
+        let ids_val = Value::from_array(ids_arr).map_err(|e| anyhow!("Failed to wrap ids: {e}"))?;
+        let mask_val = Value::from_array(mask_arr).map_err(|e| anyhow!("Failed to wrap mask: {e}"))?;
 
-        // Wrap arrays into ORT Value types
-        let ids_val = Value::from_array(ids).map_err(|e| anyhow!("Failed to create Value for input_ids: {}", e))?;
-        let mask_val = Value::from_array(mask).map_err(|e| anyhow!("Failed to create Value for attention_mask: {}", e))?;
+        // candidate id input names
+        let id_names = sig.inputs.iter().filter(|i| matches!(i.role, InputRole::Ids)).map(|i| i.name.as_str()).collect::<Vec<_>>();
+        let mask_names = sig.inputs.iter().filter(|i| matches!(i.role, InputRole::AttentionMask)).map(|i| i.name.as_str()).collect::<Vec<_>>();
 
-        // Try input_ids + attention_mask first, then input_ids only
-        if let Ok(outputs) = session_mut.run(ort::inputs![
-            "input_ids" => &ids_val,
-            "attention_mask" => &mask_val
-        ]) {
-            tracing::info!("ONNX run success: {} outputs", outputs.len());
-            return Ok(());
+        // Try ids + mask combos
+        for idn in &id_names {
+            for mn in &mask_names {
+                if let Ok(outputs) = session.run(ort::inputs![ *idn => &ids_val, *mn => &mask_val ]) { tracing::info!("Probe success ids+mask {}+{} -> {} outputs", idn, mn, outputs.len()); return Ok(()); }
+            }
         }
-
-        if let Ok(outputs) = session_mut.run(ort::inputs![
-            "input_ids" => &ids_val
-        ]) {
-            tracing::info!("ONNX run success (input_ids only): {} outputs", outputs.len());
-            return Ok(());
+        // Try ids only
+        for idn in &id_names {
+            if let Ok(outputs) = session.run(ort::inputs![ *idn => &ids_val ]) { tracing::info!("Probe success ids {} -> {} outputs", idn, outputs.len()); return Ok(()); }
         }
+        // Fallback: traditional names
+        if let Ok(outputs) = session.run(ort::inputs![ "input_ids" => &ids_val, "attention_mask" => &mask_val ]) { tracing::info!("Probe legacy success standard names -> {} outputs", outputs.len()); return Ok(()); }
+        if let Ok(outputs) = session.run(ort::inputs![ "input_ids" => &ids_val ]) { tracing::info!("Probe legacy success input_ids only -> {} outputs", outputs.len()); return Ok(()); }
+        Err(anyhow!("Adaptive probe failed for all recognized input signatures"))
+    }
 
-        Err(anyhow!("Model inference failed for common input signatures"))
+    /// Test/diagnostics helper: returns input names discovered in model signature.
+    pub fn debug_signature_input_names(&self) -> Option<Vec<String>> {
+        self.model_signature.as_ref().map(|s| s.inputs.iter().map(|i| i.name.clone()).collect())
+    }
+}
+
+/// Model input role classification
+#[derive(Debug, Clone, PartialEq)]
+enum InputRole { Ids, AttentionMask, TokenTypeIds, PositionIds, Unknown }
+
+#[derive(Debug, Clone)]
+struct ModelInputDesc { name: String, role: InputRole }
+
+#[derive(Debug, Clone)]
+struct ModelSignature { inputs: Vec<ModelInputDesc> }
+
+impl ModelSignature {
+    fn from_session(session: &Session) -> Self {
+        let mut inputs = Vec::new();
+        for inp in &session.inputs {
+            let name = inp.name.clone();
+            let lower = name.to_lowercase();
+            let role = if lower.contains("input_ids") || lower == "input" || lower.contains("tokens") { InputRole::Ids }
+                else if lower.contains("attention_mask") || lower == "mask" { InputRole::AttentionMask }
+                else if lower.contains("token_type") { InputRole::TokenTypeIds }
+                else if lower.contains("position") { InputRole::PositionIds }
+                else { InputRole::Unknown };
+            inputs.push(ModelInputDesc { name, role });
+        }
+        Self { inputs }
     }
 }
 
@@ -335,6 +425,9 @@ impl AIProvider for OnnxProvider {
         info.insert("inference_ready".to_string(), self.is_loaded.to_string());
         info.insert("framework_status".to_string(), "Active - Ready for ONNX Runtime integration".to_string());
         if let Some(err) = &self.last_ep_error { info.insert("last_ep_error".to_string(), err.clone()); }
+    if let Some(load_err) = &self.last_load_error { info.insert("last_load_error".to_string(), load_err.to_string()); }
         Ok(info)
     }
+
+    fn as_any(&self) -> &dyn std::any::Any { self }
 }

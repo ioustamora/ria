@@ -17,6 +17,17 @@ pub struct AppConfig {
     pub max_chat_history: usize,
     pub window_size: (f32, f32),
     pub window_position: Option<(f32, f32)>,
+    pub last_used_model: Option<String>,
+    pub auto_load_last_model: bool,
+    // New automation flags
+    #[serde(default)]
+    pub auto_select_latest_model: bool, // If no last model, pick most recently modified .onnx
+    #[serde(default)]
+    pub auto_load_new_download: bool,   // Auto load a model right after successful download
+    #[serde(default)]
+    pub auto_fix_onnx_runtime: bool,    // Attempt automatic ONNX runtime fix on version mismatch
+    #[serde(default)]
+    pub enable_ep_fallback: bool,       // Future: attempt alternate EPs on failure
 }
 
 impl Default for AppConfig {
@@ -37,6 +48,12 @@ impl Default for AppConfig {
             max_chat_history: 100,
             window_size: (1200.0, 800.0),
             window_position: None,
+            last_used_model: None,
+            auto_load_last_model: true,
+            auto_select_latest_model: true,
+            auto_load_new_download: true,
+            auto_fix_onnx_runtime: true,
+            enable_ep_fallback: true,
         }
     }
 }

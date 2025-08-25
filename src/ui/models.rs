@@ -30,6 +30,8 @@ pub struct ModelManagerUI {
     tab_loading_states: HashMap<ModelTab, bool>,
     show_help: bool, // Show help overlay
     last_model_update: Option<Instant>, // Track when we last updated models
+    // Recently completed downloads to be consumed by app (FIFO)
+    completed_downloads: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +101,7 @@ impl ModelManagerUI {
             tab_loading_states: HashMap::new(),
             show_help: false,
             last_model_update: None,
+            completed_downloads: Vec::new(),
         };
 
         ui.load_remote_models();
@@ -293,6 +296,10 @@ impl ModelManagerUI {
                     // Remove the download card after completion
                     // Force immediate model update since we just downloaded a model
                     self.last_model_update = None; // Force update on next render
+                    // Track for auto-load consumption
+                    if !self.completed_downloads.contains(&update.model_name) {
+                        self.completed_downloads.push(update.model_name.clone());
+                    }
                 }
                 
                 if let DownloadStatus::Failed(error) = &update.status {
@@ -301,6 +308,13 @@ impl ModelManagerUI {
                 }
             }
         }
+    }
+
+    // Allow app layer to fetch and clear completed downloads (returns names in order)
+    pub fn take_completed_downloads(&mut self) -> Vec<String> {
+        let mut v = Vec::new();
+        std::mem::swap(&mut v, &mut self.completed_downloads);
+        v
     }
 
     pub fn render(&mut self, ui: &mut egui::Ui) {

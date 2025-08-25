@@ -33,6 +33,8 @@ impl AIProvider for BasicDemoProvider {
         m.insert("status".into(), "Active (fallback mode)".into());
         Ok(m)
     }
+
+    fn as_any(&self) -> &dyn std::any::Any { self }
 }
 
 impl BasicDemoProvider {
@@ -234,6 +236,36 @@ impl InferenceEngine {
             }
         });
 
+        Ok(rx)
+    }
+
+    /// Placeholder: generate streaming using logits sampling (future real logits extraction)
+    pub fn generate_response_stream_sampled(&mut self, messages: &[ChatMessage], max_tokens: usize, delay_ms: u64) -> Result<mpsc::Receiver<String>> {
+        use crate::ai::sampler::{LogitsSampler, SamplerConfig, SamplingStrategy};
+        let provider_idx = self.active_provider.ok_or_else(|| anyhow::anyhow!("No active provider set"))?;
+        let mut sampler = LogitsSampler::new(SamplerConfig { temperature: 0.8, strategy: SamplingStrategy::TopP { p: 0.95 } });
+        // For now fabricate logits vocabulary of limited size
+        let vocab = ["the","rust","ai","model","is","ready","and","responding","to","your","message","now","!","assistant"];
+        let (tx, rx) = mpsc::channel(32);
+        let mut generated = String::new();
+        let base_prompt = messages.iter().filter(|m| matches!(m.role, MessageRole::User)).map(|m| &m.content).last().cloned().unwrap_or_default();
+        tokio::spawn(async move {
+            for step in 0..max_tokens {                
+                // Fake logits: random values
+                let mut logits: Vec<f32> = (0..vocab.len()).map(|_| rand::random::<f32>()).collect();
+                // Bias to encourage ending
+                if step > max_tokens/2 { logits[vocab.len()-1] += 1.0; }
+                if let Some(idx) = sampler.sample(&logits) {                    
+                    let token = vocab[idx];
+                    if token == "assistant" && step < 2 { continue; }
+                    generated.push_str(token);
+                    generated.push(' ');
+                    if tx.send(generated.clone()).await.is_err() { break; }
+                    if token == "!" { break; }
+                } else { break; }
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            }
+        });
         Ok(rx)
     }
 }

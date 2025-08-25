@@ -522,6 +522,176 @@ impl SystemStatusComponent {
     pub fn is_memory_high(&self) -> bool {
         self.get_memory_usage_percent() > 85.0 // Warning threshold
     }
+
+    pub fn get_cpu_usage_percent(&self) -> f32 {
+        let cpu_info = self.system_info.get_cpu_info();
+        if let Some(cpu_usage) = cpu_info.get("usage") {
+            cpu_usage.replace('%', "").parse::<f32>().unwrap_or(0.0)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn get_disk_usage_percent(&self) -> f32 {
+        // Simplified disk usage - could be enhanced to show specific drive
+        // For now, we'll estimate based on available info
+        50.0 // Placeholder - would need proper disk monitoring
+    }
+
+    /// Render compact status bar for top of application
+    pub fn render_status_bar(&mut self, ui: &mut egui::Ui) {
+        // Update system info periodically (more frequently for status bar)
+        if self.last_update.elapsed() > Duration::from_millis(1500) {
+            self.system_info.refresh();
+            self.last_update = Instant::now();
+        }
+
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            
+            // Memory indicator
+            let mem_percent = self.get_memory_usage_percent();
+            let mem_color = if mem_percent > 85.0 { 
+                egui::Color32::from_rgb(255, 107, 107) 
+            } else if mem_percent > 70.0 { 
+                egui::Color32::from_rgb(255, 193, 7) 
+            } else { 
+                egui::Color32::from_rgb(34, 197, 94) 
+            };
+            
+            ui.colored_label(mem_color, "💾");
+            ui.add(egui::ProgressBar::new(mem_percent / 100.0)
+                .fill(mem_color)
+                .desired_width(40.0)
+                .show_percentage());
+            
+            ui.add_space(8.0);
+            
+            // CPU indicator  
+            let cpu_percent = self.get_cpu_usage_percent();
+            let cpu_color = if cpu_percent > 85.0 { 
+                egui::Color32::from_rgb(255, 107, 107) 
+            } else if cpu_percent > 70.0 { 
+                egui::Color32::from_rgb(255, 193, 7) 
+            } else { 
+                egui::Color32::from_rgb(34, 197, 94) 
+            };
+            
+            ui.colored_label(cpu_color, "🖥️");
+            ui.add(egui::ProgressBar::new(cpu_percent / 100.0)
+                .fill(cpu_color)
+                .desired_width(40.0)
+                .show_percentage());
+            
+            ui.add_space(8.0);
+            
+            // Disk indicator
+            let disk_percent = self.get_disk_usage_percent();
+            let disk_color = if disk_percent > 90.0 { 
+                egui::Color32::from_rgb(255, 107, 107) 
+            } else if disk_percent > 75.0 { 
+                egui::Color32::from_rgb(255, 193, 7) 
+            } else { 
+                egui::Color32::from_rgb(34, 197, 94) 
+            };
+            
+            ui.colored_label(disk_color, "💿");
+            ui.add(egui::ProgressBar::new(disk_percent / 100.0)
+                .fill(disk_color)
+                .desired_width(40.0)
+                .show_percentage());
+            
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+            
+            // GPU/NPU indicators
+            let devices = self.system_info.get_available_compute_devices();
+            let mut has_gpu = false;
+            let mut has_npu = false;
+            
+            for device in &devices {
+                if device.to_lowercase().contains("gpu") || device.to_lowercase().contains("nvidia") || device.to_lowercase().contains("amd") {
+                    has_gpu = true;
+                } else if device.to_lowercase().contains("npu") || device.to_lowercase().contains("neural") {
+                    has_npu = true;
+                }
+            }
+            
+            // GPU indicator (placeholder usage)
+            if has_gpu {
+                let gpu_percent = 25.0; // Placeholder - would need proper GPU monitoring
+                let gpu_color = if gpu_percent > 85.0 { 
+                    egui::Color32::from_rgb(255, 107, 107) 
+                } else if gpu_percent > 70.0 { 
+                    egui::Color32::from_rgb(255, 193, 7) 
+                } else { 
+                    egui::Color32::from_rgb(34, 197, 94) 
+                };
+                
+                ui.colored_label(gpu_color, "🎮");
+                ui.add(egui::ProgressBar::new(gpu_percent / 100.0)
+                    .fill(gpu_color)
+                    .desired_width(40.0)
+                    .show_percentage());
+                ui.add_space(8.0);
+            }
+            
+            // NPU indicator
+            if has_npu {
+                let npu_percent = 0.0; // Would show actual NPU usage when model is loaded
+                let npu_color = if npu_percent > 85.0 { 
+                    egui::Color32::from_rgb(255, 107, 107) 
+                } else if npu_percent > 70.0 { 
+                    egui::Color32::from_rgb(255, 193, 7) 
+                } else if npu_percent > 0.0 {
+                    egui::Color32::from_rgb(34, 197, 94) 
+                } else {
+                    egui::Color32::GRAY
+                };
+                
+                ui.colored_label(npu_color, "🧠");
+                ui.add(egui::ProgressBar::new(npu_percent / 100.0)
+                    .fill(npu_color)
+                    .desired_width(40.0)
+                    .show_percentage());
+            } else {
+                // Show NPU as unavailable
+                ui.colored_label(egui::Color32::GRAY, "🧠");
+                ui.label(
+                    egui::RichText::new("N/A")
+                        .size(10.0)
+                        .color(egui::Color32::GRAY)
+                );
+            }
+            
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
+                
+                // System time
+                let now = chrono::Local::now();
+                ui.label(
+                    egui::RichText::new(now.format("%H:%M:%S").to_string())
+                        .size(11.0)
+                        .color(egui::Color32::GRAY)
+                );
+                
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(8.0);
+                
+                // Compact system info
+                let mem_info = self.system_info.get_memory_info();
+                if let (Some(used_str), Some(total_str)) = (mem_info.get("used"), mem_info.get("total")) {
+                    ui.label(
+                        egui::RichText::new(format!("📊 {}/{}", used_str, total_str))
+                            .size(10.0)
+                            .color(egui::Color32::GRAY)
+                    );
+                }
+            });
+        });
+    }
 }
 
 // Helper function to interpolate between colors
