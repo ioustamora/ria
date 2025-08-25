@@ -1,4 +1,4 @@
-# 🤖 RIA AI Chat
+# 🤖 RIA AI Chat for Copilot+ PC with npu cores
 
 Cross‑platform Rust desktop AI chat app (egui + ONNX Runtime) with modern animated UI, local model management, execution‑provider detection, streaming simulation, accessibility, and intelligent fallback responses when no model is loaded.
 
