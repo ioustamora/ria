@@ -11,6 +11,98 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 use std::time::Instant;
 use crate::ai::inference::BasicDemoProvider;
+use std::collections::VecDeque;
+
+#[derive(Debug, Clone)]
+pub struct AppNotification {
+    pub id: u64,
+    pub message: String,
+    pub notification_type: NotificationType,
+    pub created_at: Instant,
+    pub duration: f32,
+    pub dismissible: bool,
+    pub actions: Vec<NotificationAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NotificationType {
+    Success,
+    Error,
+    Warning,
+    Info,
+    Loading,
+}
+
+#[derive(Debug, Clone)]
+pub struct NotificationAction {
+    pub label: String,
+    pub action_type: NotificationActionType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NotificationActionType {
+    Dismiss,
+    Retry,
+    ShowDetails,
+    OpenSettings,
+}
+
+impl AppNotification {
+    pub fn new(message: String, notification_type: NotificationType) -> Self {
+        Self {
+            id: 0, // Will be set by the app
+            message,
+            notification_type,
+            created_at: Instant::now(),
+            duration: match notification_type {
+                NotificationType::Success => 3.0,
+                NotificationType::Error => 5.0,
+                NotificationType::Warning => 4.0,
+                NotificationType::Info => 3.0,
+                NotificationType::Loading => 0.0, // Persistent until dismissed
+            },
+            dismissible: matches!(notification_type, NotificationType::Success | NotificationType::Info | NotificationType::Warning),
+            actions: vec![],
+        }
+    }
+
+    pub fn with_actions(mut self, actions: Vec<NotificationAction>) -> Self {
+        self.actions = actions;
+        self
+    }
+
+    pub fn with_duration(mut self, duration: f32) -> Self {
+        self.duration = duration;
+        self
+    }
+
+    pub fn is_expired(&self) -> bool {
+        if self.duration <= 0.0 {
+            return false; // Persistent notification
+        }
+        self.created_at.elapsed().as_secs_f32() > self.duration
+    }
+
+    pub fn get_color(&self) -> egui::Color32 {
+        match self.notification_type {
+            NotificationType::Success => egui::Color32::from_rgb(34, 139, 34),
+            NotificationType::Error => egui::Color32::from_rgb(220, 53, 69),
+            NotificationType::Warning => egui::Color32::from_rgb(255, 193, 7),
+            NotificationType::Info => egui::Color32::from_rgb(23, 162, 184),
+            NotificationType::Loading => egui::Color32::from_rgb(108, 117, 125),
+        }
+    }
+
+    pub fn get_icon(&self) -> &'static str {
+        match self.notification_type {
+            NotificationType::Success => "✅",
+            NotificationType::Error => "❌",
+            NotificationType::Warning => "⚠️",
+            NotificationType::Info => "ℹ️",
+            NotificationType::Loading => "🔄",
+        }
+    }
+}
 
 pub struct RiaApp {
     chat_sessions: Vec<ChatSession>,
@@ -30,6 +122,8 @@ pub struct RiaApp {
     streaming_buffer: String,
     streaming_start: Option<Instant>,
     system_status: SystemStatusComponent,
+    notifications: VecDeque<AppNotification>,
+    notification_id_counter: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -77,6 +171,8 @@ impl RiaApp {
             streaming_buffer: String::new(),
             streaming_start: None,
             system_status: SystemStatusComponent::new(),
+            notifications: VecDeque::new(),
+            notification_id_counter: 0,
         }
     }
 
@@ -93,7 +189,7 @@ impl RiaApp {
         self.current_session = Some(self.chat_sessions.len() - 1);
     }
 
-    fn send_message(&mut self, ctx: &egui::Context) {
+    fn send_message(&mut self, _ctx: &egui::Context) {
         if self.input_text.trim().is_empty() || self.generating_response {
             return;
         }
@@ -113,9 +209,10 @@ impl RiaApp {
         };
 
         self.chat_sessions[session_idx].messages.push(user_message.clone());
-        let user_input = self.input_text.clone();
+        let _user_input = self.input_text.clone();
         self.input_text.clear();
         self.generating_response = true;
+        self.show_loading("Generating response...");
 
         // Kick off streaming generation via inference engine. If no provider is loaded,
         // the engine will fall back to a demo provider.
@@ -150,6 +247,7 @@ impl RiaApp {
                 }
                 Err(e) => {
                     tracing::error!("Streaming generation failed: {}", e);
+                    // Cannot call self methods from async context
                 }
             }
             // Drop tx to signal completion
@@ -275,29 +373,7 @@ impl RiaApp {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 ui.add_space(20.0);
                 
-                ui.horizontal(|ui| {
-                    ui.add_space(20.0);
-                    
-                    let response = ui.add_sized(
-                        [ui.available_width() - 120.0, 40.0],
-                        egui::TextEdit::singleline(&mut self.input_text)
-                            .hint_text(if self.generating_response { "Generating response..." } else { "Type your message here..." })
-                            .font(egui::TextStyle::Body)
-                    );
-
-                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.generating_response {
-                        self.send_message(ctx);
-                    }
-
-                    ui.add_space(10.0);
-                    
-                    let send_button = egui::Button::new(if self.generating_response { "⏳ Generating..." } else { "Send" });
-                    if ui.add_sized([80.0, 40.0], send_button).clicked() && !self.generating_response {
-                        self.send_message(ctx);
-                    }
-                    
-                    ui.add_space(20.0);
-                });
+                self.render_enhanced_input_area(ui, ctx);
                 
                 ui.add_space(20.0);
             });
@@ -328,6 +404,170 @@ impl RiaApp {
                 });
             });
         }
+    }
+
+    fn render_enhanced_input_area(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let max_chars = 2000;
+        let current_chars = self.input_text.len();
+        let word_count = if self.input_text.trim().is_empty() {
+            0
+        } else {
+            self.input_text.trim().split_whitespace().count()
+        };
+        
+        // Input area container with professional styling
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(40, 44, 52))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 66, 74)))
+            .rounding(12.0)
+            .inner_margin(16.0)
+            .show(ui, |ui| {
+                ui.vertical(|ui| {
+                    // Header with formatting controls and stats
+                    ui.horizontal(|ui| {
+                        // Formatting controls
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("✏️")
+                                    .size(16.0)
+                                    .color(egui::Color32::from_rgb(100, 200, 255))
+                            );
+                            
+                            ui.add_space(8.0);
+                            
+                            // Suggested prompts dropdown
+                            egui::ComboBox::from_id_salt("prompt_suggestions")
+                                .selected_text("💡 Quick Prompts")
+                                .width(120.0)
+                                .show_ui(ui, |ui| {
+                                    if ui.selectable_label(false, "📝 Explain this concept").clicked() {
+                                        self.input_text = "Can you explain ".to_string();
+                                    }
+                                    if ui.selectable_label(false, "🔍 Analyze this code").clicked() {
+                                        self.input_text = "Please analyze this code: ".to_string();
+                                    }
+                                    if ui.selectable_label(false, "🐛 Debug this issue").clicked() {
+                                        self.input_text = "Help me debug this problem: ".to_string();
+                                    }
+                                    if ui.selectable_label(false, "💡 Brainstorm ideas").clicked() {
+                                        self.input_text = "I need ideas for ".to_string();
+                                    }
+                                    if ui.selectable_label(false, "📚 Learn about").clicked() {
+                                        self.input_text = "Teach me about ".to_string();
+                                    }
+                                });
+                        });
+                        
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            // Character and word count
+                            let count_color = if current_chars > (max_chars as f32 * 0.9) as usize {
+                                egui::Color32::from_rgb(255, 107, 107) // Red when near limit
+                            } else if current_chars > (max_chars as f32 * 0.7) as usize {
+                                egui::Color32::from_rgb(255, 193, 7) // Yellow when approaching limit
+                            } else {
+                                egui::Color32::GRAY
+                            };
+                            
+                            ui.label(
+                                egui::RichText::new(format!("{}/{} chars | {} words", current_chars, max_chars, word_count))
+                                    .size(11.0)
+                                    .color(count_color)
+                            );
+                        });
+                    });
+                    
+                    ui.add_space(8.0);
+                    
+                    // Main input area
+                    ui.horizontal(|ui| {
+                        // Multi-line text input
+                        let available_width = ui.available_width() - 100.0;
+                        let text_edit_response = ui.add_sized(
+                            [available_width, 60.0],
+                            egui::TextEdit::multiline(&mut self.input_text)
+                                .hint_text(if self.generating_response { 
+                                    "🔄 Generating response..." 
+                                } else { 
+                                    "💬 Type your message here...\n✨ Use Ctrl+Enter to send, or click the Send button"
+                                })
+                                .font(egui::TextStyle::Body)
+                                .desired_width(available_width)
+                                .lock_focus(self.generating_response)
+                        );
+                        
+                        // Handle keyboard shortcuts
+                        if text_edit_response.lost_focus() && ui.input(|i| {
+                            i.key_pressed(egui::Key::Enter) && i.modifiers.ctrl
+                        }) && !self.generating_response {
+                            self.send_message(ctx);
+                        }
+                        
+                        ui.add_space(12.0);
+                        
+                        // Send button area
+                        ui.vertical(|ui| {
+                            ui.add_space(8.0);
+                            
+                            let send_enabled = !self.input_text.trim().is_empty() && 
+                                             !self.generating_response && 
+                                             current_chars <= max_chars;
+                            
+                            // Enhanced send button
+                            let send_button_text = if self.generating_response {
+                                "⏳ Generating..."
+                            } else if current_chars > max_chars {
+                                "❌ Too long"
+                            } else if self.input_text.trim().is_empty() {
+                                "✏️ Type first"
+                            } else {
+                                "🚀 Send"
+                            };
+                            
+                            let button_color = if send_enabled {
+                                egui::Color32::from_rgb(0, 123, 255)
+                            } else {
+                                egui::Color32::from_rgb(108, 117, 125)
+                            };
+                            
+                            let send_button = egui::Button::new(send_button_text)
+                                .fill(button_color)
+                                .rounding(8.0);
+                            
+                            if ui.add_sized([80.0, 36.0], send_button).clicked() && send_enabled {
+                                self.send_message(ctx);
+                            }
+                            
+                            // Clear button
+                            if !self.input_text.is_empty() && !self.generating_response {
+                                ui.add_space(4.0);
+                                let clear_button = egui::Button::new("🗑️ Clear")
+                                    .fill(egui::Color32::from_rgb(220, 53, 69))
+                                    .rounding(8.0);
+                                if ui.add_sized([80.0, 28.0], clear_button).clicked() {
+                                    self.input_text.clear();
+                                }
+                            }
+                        });
+                    });
+                    
+                    // Footer with helpful tips
+                    if !self.generating_response {
+                        ui.add_space(6.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+                        
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("💡 Tips: Use Ctrl+Enter to send quickly • Try the quick prompts above • Ask follow-up questions")
+                                    .size(10.0)
+                                    .color(egui::Color32::from_rgb(140, 140, 140))
+                            );
+                        });
+                    }
+                });
+            });
+        
+        ui.add_space(20.0);
     }
 
     fn render_message(&self, ui: &mut egui::Ui, message: &ChatMessage) {
@@ -502,6 +742,7 @@ impl RiaApp {
                         match provider.load_model() {
                             Ok(()) => {
                                 tracing::info!("Model loaded successfully: {}", info.name);
+                                self.show_success(format!("Model '{}' loaded successfully!", info.name));
                                 self.model_loaded = true;
 
                                 // Register provider with inference engine asynchronously
@@ -514,15 +755,18 @@ impl RiaApp {
                             }
                             Err(e) => {
                                 tracing::error!("Failed to load model: {}", e);
+                                self.show_error(format!("Failed to load model: {}", e));
                             }
                         }
                     }
                     Err(e) => {
                         tracing::error!("Failed to create ONNX provider: {}", e);
+                        self.show_error(format!("Failed to create ONNX provider: {}", e));
                     }
                 }
             } else {
                 tracing::warn!("Selected model not found: {}", selected_model);
+                self.show_warning(format!("Selected model not found: {}", selected_model));
             }
         }
     }
@@ -551,12 +795,185 @@ impl RiaApp {
                 })
         }
     }
+
+    // Notification management methods
+    fn add_notification(&mut self, mut notification: AppNotification) {
+        self.notification_id_counter += 1;
+        notification.id = self.notification_id_counter;
+        self.notifications.push_back(notification);
+        
+        // Limit to 5 notifications max
+        while self.notifications.len() > 5 {
+            self.notifications.pop_front();
+        }
+    }
+
+    fn show_success(&mut self, message: impl Into<String>) {
+        let notification = AppNotification::new(message.into(), NotificationType::Success);
+        self.add_notification(notification);
+    }
+
+    fn show_error(&mut self, message: impl Into<String>) {
+        let notification = AppNotification::new(message.into(), NotificationType::Error)
+            .with_actions(vec![
+                NotificationAction {
+                    label: "Retry".to_string(),
+                    action_type: NotificationActionType::Retry,
+                },
+                NotificationAction {
+                    label: "Dismiss".to_string(),
+                    action_type: NotificationActionType::Dismiss,
+                }
+            ]);
+        self.add_notification(notification);
+    }
+
+    fn show_warning(&mut self, message: impl Into<String>) {
+        let notification = AppNotification::new(message.into(), NotificationType::Warning);
+        self.add_notification(notification);
+    }
+
+    fn show_info(&mut self, message: impl Into<String>) {
+        let notification = AppNotification::new(message.into(), NotificationType::Info);
+        self.add_notification(notification);
+    }
+
+    fn show_loading(&mut self, message: impl Into<String>) {
+        let notification = AppNotification::new(message.into(), NotificationType::Loading)
+            .with_duration(0.0); // Persistent until dismissed
+        self.add_notification(notification);
+    }
+
+    fn dismiss_notification(&mut self, id: u64) {
+        self.notifications.retain(|n| n.id != id);
+    }
+
+    fn clear_loading_notifications(&mut self) {
+        self.notifications.retain(|n| n.notification_type != NotificationType::Loading);
+    }
+
+    fn update_notifications(&mut self) {
+        // Remove expired notifications
+        self.notifications.retain(|n| !n.is_expired());
+    }
+
+    fn render_notifications(&mut self, ctx: &egui::Context) {
+        let mut to_dismiss = Vec::new();
+        let mut actions_to_handle = Vec::new();
+        
+        // Render notifications as toast popups in the top-right corner
+        let screen_rect = ctx.screen_rect();
+        let notification_width = 300.0;
+        let notification_spacing = 10.0;
+        
+        for (index, notification) in self.notifications.iter().enumerate() {
+            let y_offset = 20.0 + (index as f32) * (80.0 + notification_spacing);
+            let x_offset = screen_rect.width() - notification_width - 20.0;
+            
+            let _window_pos = egui::pos2(x_offset, y_offset);
+            
+            egui::Window::new(format!("notification_{}", notification.id))
+                .title_bar(false)
+                .resizable(false)
+                .collapsible(false)
+                .movable(false)
+                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-20.0, y_offset))
+                .fixed_size([notification_width, 70.0])
+                .show(ctx, |ui| {
+                    egui::Frame::none()
+                        .fill(notification.get_color().gamma_multiply(0.1))
+                        .stroke(egui::Stroke::new(1.0, notification.get_color()))
+                        .rounding(8.0)
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                // Icon
+                                ui.label(
+                                    egui::RichText::new(notification.get_icon())
+                                        .size(18.0)
+                                        .color(notification.get_color())
+                                );
+                                
+                                ui.add_space(8.0);
+                                
+                                ui.vertical(|ui| {
+                                    // Message
+                                    ui.label(
+                                        egui::RichText::new(&notification.message)
+                                            .size(14.0)
+                                            .color(egui::Color32::WHITE)
+                                    );
+                                    
+                                    // Actions
+                                    if !notification.actions.is_empty() {
+                                        ui.add_space(4.0);
+                                        ui.horizontal(|ui| {
+                                            for action in &notification.actions {
+                                                let button_color = match action.action_type {
+                                                    NotificationActionType::Retry => egui::Color32::from_rgb(0, 123, 255),
+                                                    _ => egui::Color32::from_rgb(108, 117, 125),
+                                                };
+                                                
+                                                let button = egui::Button::new(&action.label)
+                                                    .fill(button_color)
+                                                    .rounding(4.0);
+                                                
+                                                if ui.add_sized([60.0, 20.0], button).clicked() {
+                                                    actions_to_handle.push((notification.id, action.action_type.clone()));
+                                                }
+                                                ui.add_space(4.0);
+                                            }
+                                        });
+                                    }
+                                });
+                                
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                                    // Dismiss button
+                                    if notification.dismissible {
+                                        if ui.small_button("✕").clicked() {
+                                            to_dismiss.push(notification.id);
+                                        }
+                                    }
+                                });
+                            });
+                        });
+                });
+        }
+        
+        // Handle actions
+        for (notification_id, action_type) in actions_to_handle {
+            match action_type {
+                NotificationActionType::Dismiss => {
+                    to_dismiss.push(notification_id);
+                }
+                NotificationActionType::Retry => {
+                    to_dismiss.push(notification_id);
+                    // Could add retry logic here
+                }
+                NotificationActionType::ShowDetails => {
+                    // Could show details dialog
+                }
+                NotificationActionType::OpenSettings => {
+                    self.show_settings = true;
+                    to_dismiss.push(notification_id);
+                }
+            }
+        }
+        
+        // Dismiss notifications
+        for id in to_dismiss {
+            self.dismiss_notification(id);
+        }
+    }
 }
 
 impl eframe::App for RiaApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Update animation time
         self.animation_time += ctx.input(|i| i.stable_dt);
+        
+        // Update notifications (remove expired ones)
+        self.update_notifications();
 
         // Settings window
         if self.show_settings {
@@ -632,6 +1049,7 @@ impl eframe::App for RiaApp {
                             }
                         }
                         self.generating_response = false;
+                        self.clear_loading_notifications();
                         self.streaming_rx = None;
                         self.streaming_start = None;
                         break;
@@ -668,6 +1086,10 @@ impl eframe::App for RiaApp {
                 );
             });
         });
+
+        
+        // Render notifications (toast popups)
+        self.render_notifications(ctx);
 
         // Request repaint for smooth animations
         ctx.request_repaint();

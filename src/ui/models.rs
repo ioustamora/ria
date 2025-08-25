@@ -475,45 +475,213 @@ impl ModelManagerUI {
     }
 
     fn render_local_model_card(&mut self, ui: &mut egui::Ui, model: &ModelInfo) {
+        let selected = self.selected_model.as_ref() == Some(&model.name);
+        
+        // Enhanced card with hover effects and professional styling
+        let base_fill = if selected {
+            egui::Color32::from_rgb(45, 55, 75) // Selected highlight
+        } else {
+            egui::Color32::from_rgb(42, 46, 54) // Default
+        };
+        
+        let stroke_color = if selected {
+            egui::Color32::from_rgb(100, 150, 255) // Blue border when selected
+        } else {
+            egui::Color32::from_rgb(65, 70, 80) // Subtle border
+        };
+        
         egui::Frame::none()
-            .fill(egui::Color32::from_rgb(40, 40, 50))
-            .rounding(8.0)
-            .inner_margin(15.0)
+            .fill(base_fill)
+            .stroke(egui::Stroke::new(if selected { 2.0 } else { 1.0 }, stroke_color))
+            .rounding(12.0)
+            .inner_margin(18.0)
+            .shadow(egui::epaint::Shadow {
+                color: egui::Color32::from_black_alpha(80),
+                offset: egui::vec2(0.0, 4.0),
+                blur: 8.0,
+                spread: 0.0,
+            })
             .show(ui, |ui| {
+                // Header section with icon and selection
                 ui.horizontal(|ui| {
-                    // Model icon based on type
-                    let icon = match model.model_type {
-                        ModelType::LanguageModel => "🗣️",
-                        ModelType::ChatModel => "💬",
-                        ModelType::CodeModel => "💻",
-                        ModelType::MultiModal => "🎭",
+                    // Enhanced model icon with background
+                    let (icon, icon_color, icon_bg) = match model.model_type {
+                        ModelType::LanguageModel => ("🗣️", egui::Color32::WHITE, egui::Color32::from_rgb(76, 175, 80)),
+                        ModelType::ChatModel => ("💬", egui::Color32::WHITE, egui::Color32::from_rgb(33, 150, 243)),
+                        ModelType::CodeModel => ("💻", egui::Color32::WHITE, egui::Color32::from_rgb(156, 39, 176)),
+                        ModelType::MultiModal => ("🎭", egui::Color32::WHITE, egui::Color32::from_rgb(255, 152, 0)),
                     };
                     
-                    ui.label(egui::RichText::new(icon).size(24.0));
+                    egui::Frame::none()
+                        .fill(icon_bg)
+                        .rounding(8.0)
+                        .inner_margin(8.0)
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(icon).size(20.0).color(icon_color));
+                        });
+                    
+                    ui.add_space(12.0);
                     
                     ui.vertical(|ui| {
+                        // Model name with status indicator
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(&model.name).size(16.0).strong());
+                            ui.label(
+                                egui::RichText::new(&model.name)
+                                    .size(18.0)
+                                    .strong()
+                                    .color(egui::Color32::WHITE)
+                            );
                             
-                            // Selection radio button
-                            let selected = self.selected_model.as_ref() == Some(&model.name);
-                            if ui.radio(selected, "Use")
-                                .on_hover_text("Select this model for AI chat")
-                                .clicked() {
-                                self.selected_model = Some(model.name.clone());
+                            if selected {
+                                ui.label(
+                                    egui::RichText::new("● SELECTED")
+                                        .size(10.0)
+                                        .color(egui::Color32::from_rgb(76, 175, 80))
+                                        .strong()
+                                );
                             }
                         });
                         
-                        ui.label(format!("Size: {}", crate::ai::models::ModelManager::format_file_size(model.size)));
-                        ui.label(format!("Type: {:?}", model.model_type));
-                        if let Some(quant) = &model.quantization {
-                            ui.label(format!("Quantization: {:?}", quant));
-                        }
-                        ui.label(format!("Path: {}", model.path.display()));
+                        // Model type badge
+                        ui.horizontal(|ui| {
+                            let type_text = match model.model_type {
+                                ModelType::LanguageModel => "Language Model",
+                                ModelType::ChatModel => "Chat Model", 
+                                ModelType::CodeModel => "Code Model",
+                                ModelType::MultiModal => "Multi-Modal",
+                            };
+                            
+                            egui::Frame::none()
+                                .fill(egui::Color32::from_rgb(55, 60, 70))
+                                .rounding(4.0)
+                                .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        egui::RichText::new(type_text)
+                                            .size(11.0)
+                                            .color(egui::Color32::from_rgb(200, 200, 200))
+                                    );
+                                });
+                        });
                     });
                     
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                        // Enhanced selection button
+                        let select_button_text = if selected { "✓ Selected" } else { "Select" };
+                        let select_button_color = if selected {
+                            egui::Color32::from_rgb(76, 175, 80)
+                        } else {
+                            egui::Color32::from_rgb(33, 150, 243)
+                        };
+                        
+                        let select_button = egui::Button::new(select_button_text)
+                            .fill(select_button_color)
+                            .rounding(6.0);
+                        
+                        if ui.add_sized([80.0, 32.0], select_button)
+                            .on_hover_text("Select this model for AI chat")
+                            .clicked() {
+                            self.selected_model = Some(model.name.clone());
+                        }
+                    });
+                });
+                
+                ui.add_space(12.0);
+                
+                // Model details section with professional info cards
+                ui.horizontal(|ui| {
+                    // Size info card
+                    self.render_info_card(ui, "📦", "Size", 
+                        &crate::ai::models::ModelManager::format_file_size(model.size),
+                        egui::Color32::from_rgb(63, 81, 181));
+                    
+                    ui.add_space(8.0);
+                    
+                    // Quantization info card (if available)
+                    if let Some(quant) = &model.quantization {
+                        let quant_text = match quant {
+                            QuantizationType::INT4 => "INT4",
+                            QuantizationType::INT8 => "INT8", 
+                            QuantizationType::FP16 => "FP16",
+                            QuantizationType::FP32 => "FP32",
+                            QuantizationType::Q4F16 => "Q4F16",
+                        };
+                        self.render_info_card(ui, "⚡", "Quantization", quant_text,
+                            egui::Color32::from_rgb(255, 152, 0));
+                        ui.add_space(8.0);
+                    }
+                });
+                
+                ui.add_space(10.0);
+                
+                // Execution providers section with enhanced pills
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new("Supported Execution Providers")
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(180, 180, 180))
+                    );
+                    
+                    ui.add_space(6.0);
+                    
+                    ui.horizontal_wrapped(|ui| {
+                        for provider in &model.supported_providers {
+                            let (provider_text, provider_color, provider_icon) = match provider {
+                                ExecutionProvider::Cpu => ("CPU", egui::Color32::from_rgb(96, 125, 139), "🖥️"),
+                                ExecutionProvider::Cuda => ("CUDA", egui::Color32::from_rgb(76, 175, 80), "🟢"),
+                                ExecutionProvider::DirectML => ("DirectML", egui::Color32::from_rgb(33, 150, 243), "🔵"),
+                                ExecutionProvider::CoreML => ("CoreML", egui::Color32::from_rgb(255, 152, 0), "🟠"),
+                                ExecutionProvider::OpenVINO => ("OpenVINO", egui::Color32::from_rgb(156, 39, 176), "🟣"),
+                                ExecutionProvider::QNN => ("QNN", egui::Color32::from_rgb(255, 87, 34), "🟤"),
+                                ExecutionProvider::NNAPI => ("NNAPI", egui::Color32::from_rgb(121, 85, 72), "🔶"),
+                            };
+                            
+                            egui::Frame::none()
+                                .fill(provider_color.gamma_multiply(0.2))
+                                .stroke(egui::Stroke::new(1.0, provider_color))
+                                .rounding(12.0)
+                                .inner_margin(egui::Margin::symmetric(10.0, 5.0))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new(provider_icon).size(12.0));
+                                        ui.label(
+                                            egui::RichText::new(provider_text)
+                                                .size(11.0)
+                                                .color(provider_color)
+                                                .strong()
+                                        );
+                                    });
+                                });
+                            
+                            ui.add_space(4.0);
+                        }
+                    });
+                });
+                
+                ui.add_space(12.0);
+                
+                // Footer with file path and actions
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("📂")
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(150, 150, 150))
+                    );
+                    
+                    ui.label(
+                        egui::RichText::new(format!("{}", model.path.display()))
+                            .size(10.0)
+                            .color(egui::Color32::from_rgb(150, 150, 150))
+                            .monospace()
+                    );
+                    
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("🗑️ Delete")
+                        // Enhanced delete button
+                        let delete_button = egui::Button::new("🗑️ Delete")
+                            .fill(egui::Color32::from_rgb(244, 67, 54))
+                            .rounding(6.0);
+                        
+                        if ui.add_sized([80.0, 28.0], delete_button)
                             .on_hover_text("Permanently delete this model from your computer")
                             .clicked() {
                             if let Err(e) = std::fs::remove_file(&model.path) {
@@ -524,21 +692,31 @@ impl ModelManagerUI {
                         }
                     });
                 });
-                
-                // Supported providers
-                ui.add_space(5.0);
-                ui.horizontal(|ui| {
-                    ui.label("Supports:");
-                    for provider in &model.supported_providers {
-                        let color = match provider {
-                            ExecutionProvider::Cpu => egui::Color32::GRAY,
-                            ExecutionProvider::Cuda => egui::Color32::GREEN,
-                            ExecutionProvider::DirectML => egui::Color32::BLUE,
-                            ExecutionProvider::CoreML => egui::Color32::from_rgb(255, 165, 0),
-                            _ => egui::Color32::LIGHT_GRAY,
-                        };
-                        ui.colored_label(color, format!("{:?}", provider));
-                    }
+            });
+    }
+
+    fn render_info_card(&self, ui: &mut egui::Ui, icon: &str, label: &str, value: &str, color: egui::Color32) {
+        egui::Frame::none()
+            .fill(color.gamma_multiply(0.15))
+            .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.5)))
+            .rounding(6.0)
+            .inner_margin(8.0)
+            .show(ui, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(icon).size(14.0));
+                        ui.label(
+                            egui::RichText::new(label)
+                                .size(10.0)
+                                .color(egui::Color32::from_rgb(180, 180, 180))
+                        );
+                    });
+                    ui.label(
+                        egui::RichText::new(value)
+                            .size(12.0)
+                            .strong()
+                            .color(color)
+                    );
                 });
             });
     }
@@ -733,40 +911,271 @@ impl ModelManagerUI {
     }
 
     fn render_remote_model_card(&mut self, ui: &mut egui::Ui, model: &RemoteModelInfo) {
+        let is_downloading = self.downloading.contains_key(&model.name);
+        
+        // Enhanced card with download-specific styling
+        let base_fill = if is_downloading {
+            egui::Color32::from_rgb(45, 50, 65) // Download in progress highlight
+        } else {
+            egui::Color32::from_rgb(38, 42, 52) // Default remote model color
+        };
+        
+        let stroke_color = if is_downloading {
+            egui::Color32::from_rgb(33, 150, 243) // Blue border when downloading
+        } else {
+            egui::Color32::from_rgb(60, 65, 75) // Subtle border
+        };
+        
         egui::Frame::none()
-            .fill(egui::Color32::from_rgb(30, 40, 50))
-            .rounding(8.0)
-            .inner_margin(15.0)
+            .fill(base_fill)
+            .stroke(egui::Stroke::new(if is_downloading { 2.0 } else { 1.0 }, stroke_color))
+            .rounding(12.0)
+            .inner_margin(18.0)
+            .shadow(egui::epaint::Shadow {
+                color: egui::Color32::from_black_alpha(60),
+                offset: egui::vec2(0.0, 3.0),
+                blur: 6.0,
+                spread: 0.0,
+            })
             .show(ui, |ui| {
+                // Header section with enhanced icon and download status
                 ui.horizontal(|ui| {
-                    let icon = match model.model_type {
-                        ModelType::LanguageModel => "🗣️",
-                        ModelType::ChatModel => "💬", 
-                        ModelType::CodeModel => "💻",
-                        ModelType::MultiModal => "🎭",
+                    // Enhanced model icon with background
+                    let (icon, icon_color, icon_bg) = match model.model_type {
+                        ModelType::LanguageModel => ("🗣️", egui::Color32::WHITE, egui::Color32::from_rgb(76, 175, 80)),
+                        ModelType::ChatModel => ("💬", egui::Color32::WHITE, egui::Color32::from_rgb(33, 150, 243)),
+                        ModelType::CodeModel => ("💻", egui::Color32::WHITE, egui::Color32::from_rgb(156, 39, 176)),
+                        ModelType::MultiModal => ("🎭", egui::Color32::WHITE, egui::Color32::from_rgb(255, 152, 0)),
                     };
                     
-                    ui.label(egui::RichText::new(icon).size(24.0));
+                    egui::Frame::none()
+                        .fill(icon_bg)
+                        .rounding(8.0)
+                        .inner_margin(8.0)
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(icon).size(20.0).color(icon_color));
+                        });
+                    
+                    ui.add_space(12.0);
                     
                     ui.vertical(|ui| {
-                        ui.label(egui::RichText::new(&model.name).size(16.0).strong());
-                        ui.label(&model.description);
-                        ui.label(format!("Size: {:.1} MB", model.size_mb));
-                        ui.label(format!("Type: {:?} ({:?})", model.model_type, model.quantization));
-                        ui.label(format!("Requirements: {}", model.requirements));
-                        if model.sha256.is_some() { ui.label("Checksum: SHA256 available"); }
-                        if model.tokenizer_url.is_some() { ui.label("Tokenizer: available"); }
+                        // Model name with download status indicator
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(&model.name)
+                                    .size(18.0)
+                                    .strong()
+                                    .color(egui::Color32::WHITE)
+                            );
+                            
+                            // Cloud indicator for remote models
+                            ui.label(
+                                egui::RichText::new("☁️ REMOTE")
+                                    .size(10.0)
+                                    .color(egui::Color32::from_rgb(33, 150, 243))
+                                    .strong()
+                            );
+                            
+                            if is_downloading {
+                                ui.label(
+                                    egui::RichText::new("🔄 DOWNLOADING")
+                                        .size(10.0)
+                                        .color(egui::Color32::from_rgb(255, 152, 0))
+                                        .strong()
+                                );
+                            }
+                        });
+                        
+                        // Description
+                        ui.label(
+                            egui::RichText::new(&model.description)
+                                .size(13.0)
+                                .color(egui::Color32::from_rgb(200, 200, 200))
+                                .italics()
+                        );
+                        
+                        ui.add_space(6.0);
+                        
+                        // Model type and quantization badges
+                        ui.horizontal(|ui| {
+                            let type_text = match model.model_type {
+                                ModelType::LanguageModel => "Language Model",
+                                ModelType::ChatModel => "Chat Model",
+                                ModelType::CodeModel => "Code Model",
+                                ModelType::MultiModal => "Multi-Modal",
+                            };
+                            
+                            egui::Frame::none()
+                                .fill(egui::Color32::from_rgb(55, 60, 70))
+                                .rounding(4.0)
+                                .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        egui::RichText::new(type_text)
+                                            .size(11.0)
+                                            .color(egui::Color32::from_rgb(200, 200, 200))
+                                    );
+                                });
+                            
+                            ui.add_space(6.0);
+                            
+                            let quant_text = match model.quantization {
+                                QuantizationType::INT4 => "INT4",
+                                QuantizationType::INT8 => "INT8",
+                                QuantizationType::FP16 => "FP16", 
+                                QuantizationType::FP32 => "FP32",
+                                QuantizationType::Q4F16 => "Q4F16",
+                            };
+                            
+                            egui::Frame::none()
+                                .fill(egui::Color32::from_rgb(255, 152, 0).gamma_multiply(0.2))
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 152, 0)))
+                                .rounding(4.0)
+                                .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        egui::RichText::new(quant_text)
+                                            .size(11.0)
+                                            .color(egui::Color32::from_rgb(255, 152, 0))
+                                            .strong()
+                                    );
+                                });
+                        });
                     });
                     
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                        // Enhanced download button or progress display
                         if let Some(download_card) = self.downloading.get_mut(&model.name) {
                             download_card.show(ui);
-                        } else if ui.button("📥 Download")
-                            .on_hover_text(format!("Download {} ({:.1} MB)", model.name, model.size_mb))
-                            .clicked() {
-                            self.start_download(model.url.clone(), model.name.clone());
+                        } else {
+                            let download_button = egui::Button::new("📥 Download")
+                                .fill(egui::Color32::from_rgb(76, 175, 80))
+                                .rounding(6.0);
+                            
+                            if ui.add_sized([100.0, 32.0], download_button)
+                                .on_hover_text(format!("Download {} ({:.1} MB)", model.name, model.size_mb))
+                                .clicked() {
+                                self.start_download(model.url.clone(), model.name.clone());
+                            }
                         }
                     });
+                });
+                
+                ui.add_space(12.0);
+                
+                // Model details section with professional info cards
+                ui.horizontal(|ui| {
+                    // Size info card
+                    self.render_info_card(ui, "📦", "Size", 
+                        &format!("{:.1} MB", model.size_mb),
+                        egui::Color32::from_rgb(63, 81, 181));
+                    
+                    ui.add_space(8.0);
+                    
+                    // Requirements info card
+                    self.render_info_card(ui, "⚙️", "Requirements", &model.requirements,
+                        egui::Color32::from_rgb(156, 39, 176));
+                    
+                    ui.add_space(8.0);
+                });
+                
+                ui.add_space(10.0);
+                
+                // Features section with enhanced indicators
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new("Available Features")
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(180, 180, 180))
+                    );
+                    
+                    ui.add_space(6.0);
+                    
+                    ui.horizontal_wrapped(|ui| {
+                        // SHA256 checksum indicator
+                        if model.sha256.is_some() {
+                            egui::Frame::none()
+                                .fill(egui::Color32::from_rgb(76, 175, 80).gamma_multiply(0.2))
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(76, 175, 80)))
+                                .rounding(12.0)
+                                .inner_margin(egui::Margin::symmetric(10.0, 5.0))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new("🔒").size(12.0));
+                                        ui.label(
+                                            egui::RichText::new("SHA256 Verified")
+                                                .size(11.0)
+                                                .color(egui::Color32::from_rgb(76, 175, 80))
+                                                .strong()
+                                        );
+                                    });
+                                });
+                            ui.add_space(4.0);
+                        }
+                        
+                        // Tokenizer indicator
+                        if model.tokenizer_url.is_some() {
+                            egui::Frame::none()
+                                .fill(egui::Color32::from_rgb(33, 150, 243).gamma_multiply(0.2))
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(33, 150, 243)))
+                                .rounding(12.0)
+                                .inner_margin(egui::Margin::symmetric(10.0, 5.0))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new("🔤").size(12.0));
+                                        ui.label(
+                                            egui::RichText::new("Tokenizer Included")
+                                                .size(11.0)
+                                                .color(egui::Color32::from_rgb(33, 150, 243))
+                                                .strong()
+                                        );
+                                    });
+                                });
+                            ui.add_space(4.0);
+                        }
+                        
+                        // Remote model indicator
+                        egui::Frame::none()
+                            .fill(egui::Color32::from_rgb(156, 39, 176).gamma_multiply(0.2))
+                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(156, 39, 176)))
+                            .rounding(12.0)
+                            .inner_margin(egui::Margin::symmetric(10.0, 5.0))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new("☁️").size(12.0));
+                                    ui.label(
+                                        egui::RichText::new("Cloud Download")
+                                            .size(11.0)
+                                            .color(egui::Color32::from_rgb(156, 39, 176))
+                                            .strong()
+                                    );
+                                });
+                            });
+                    });
+                });
+                
+                ui.add_space(12.0);
+                
+                // Footer with URL (truncated)
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("🌐")
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(150, 150, 150))
+                    );
+                    
+                    let truncated_url = if model.url.len() > 60 {
+                        format!("{}...", &model.url[..57])
+                    } else {
+                        model.url.clone()
+                    };
+                    
+                    ui.label(
+                        egui::RichText::new(truncated_url)
+                            .size(10.0)
+                            .color(egui::Color32::from_rgb(150, 150, 150))
+                            .monospace()
+                    );
                 });
             });
     }
