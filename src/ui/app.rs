@@ -1363,7 +1363,8 @@ impl eframe::App for RiaApp {
             egui::Window::new("AI Models")
                 .collapsible(false)
                 .resizable(true)
-                .default_size([800.0, 600.0])
+                .default_size([650.0, 500.0])
+                .max_size([750.0, 650.0])
                 .show(ctx, |ui| {
                     self.model_manager.render(ui);
                     
